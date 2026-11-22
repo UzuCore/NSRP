@@ -1115,21 +1115,6 @@ export component AppWindow inherits Window {
         help-update-menu := TouchArea { x:3px; y:3px; width:143px; height:24px; clicked => { root.menu-open = 0; root.open-updates(); } }
         help-info-menu := TouchArea { x:3px; y:36px; width:143px; height:24px; clicked => { root.menu-open = 0; root.show-about(); } }
     }
-    if root.menu-open == 2 : Rectangle {
-        x: 40px; y: 85px; width: 150px; height: 29px;
-        background: recovery-menu-touch.has-hover ? #cce8ff : #ffffff;
-        border-width: 1px; border-color: #b0b0b0;
-        Text {
-            x: 10px; width: 136px; height: parent.height;
-            text: "복구 이력 확인";
-            color: #202124; font-size: 12px; vertical-alignment: center;
-        }
-        recovery-menu-touch := TouchArea {
-            width: parent.width; height: parent.height;
-            clicked => { root.menu-open = 0; root.show-recovery(); }
-        }
-    }
-
     // All recovery controls are read-only: no restore, delete or rename.
     if root.recovery-open : Rectangle {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
@@ -1228,44 +1213,69 @@ export component AppWindow inherits Window {
         TouchArea { width: parent.width; height: parent.height; }
     }
     if root.about-open : Rectangle {
-        x: (parent.width - 600px) / 2;
-        y: (parent.height - 326px) / 2;
-        width: 600px; height: 326px;
+        // Keep every child within the dialog, including AboutSlint's
+        // intrinsic 280px+ width and 100px+ height.
+        x: (parent.width - 680px) / 2;
+        y: (parent.height - 446px) / 2;
+        width: 680px; height: 446px;
         background: #ffffff;
         border-width: 1px; border-color: #86919e;
         Rectangle {
-            x: 1px; y: 1px; width: parent.width - 2px; height: 48px;
+            x: 1px; y: 1px; width: parent.width - 2px; height: 54px;
             background: #f0f2f5;
             Text {
-                x: 22px; width: 420px; height: parent.height;
+                x: 22px; width: parent.width - 160px; height: parent.height;
                 text: "NSRP 정보"; color: #202124;
                 font-size: 17px; font-weight: 700;
                 vertical-alignment: center;
             }
-            LegacyButton {
-                x: 498px; y: 8px; width: 80px; height: 30px;
-                text: "닫기";
-                clicked => { root.about-open = false; }
+            // LegacyButton draws only its bitmap-backed preset labels,
+            // so using it for '닫기' was invisible even though clickable.
+            Rectangle {
+                x: parent.width - 108px; y: 10px;
+                width: 88px; height: 34px;
+                background: about-close-hit.has-hover ? #e6edf5 : #ffffff;
+                border-width: 1px; border-color: #8794a3;
+                border-radius: 4px;
+                Text {
+                    width: parent.width; height: parent.height;
+                    text: "닫기"; color: #202124; font-size: 13px;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+                about-close-hit := TouchArea {
+                    width: parent.width; height: parent.height;
+                    clicked => { root.about-open = false; }
+                }
             }
         }
-        Text {
-            x: 24px; y: 66px; width: 550px; height: 117px;
-            text: root.about-details; color: #202124;
-            font-size: 12px; wrap: word-wrap;
-            vertical-alignment: top;
+        Rectangle {
+            x: 24px; y: 73px; width: parent.width - 48px; height: 175px;
+            background: #f8f9fb; border-width: 1px; border-color: #e1e5ea;
+            ScrollView {
+                x: 2px; y: 2px; width: parent.width - 4px; height: parent.height - 4px;
+                viewport-width: self.width;
+                viewport-height: max(self.height, about-detail-text.preferred-height + 20px);
+                about-detail-text := Text {
+                    x: 10px; y: 10px; width: parent.width - 24px;
+                    height: self.preferred-height;
+                    text: root.about-details; color: #202124;
+                    font-size: 12px; wrap: word-wrap;
+                    vertical-alignment: top;
+                }
+            }
         }
         Rectangle {
-            x: 24px; y: 190px; width: 550px; height: 1px;
+            x: 24px; y: 262px; width: parent.width - 48px; height: 1px;
             background: #e4e7eb;
         }
         Text {
-            x: 24px; y: 200px; width: 550px; height: 29px;
+            x: 24px; y: 274px; width: parent.width - 48px; height: 30px;
             text: "UI 프레임워크 — Slint (로열티 프리 데스크톱 라이선스 2.0)";
             color: #606a75; font-size: 12px;
             vertical-alignment: center;
         }
         AboutSlint {
-            x: 24px; y: 236px; width: 245px; height: 72px;
+            x: 24px; y: 310px; width: 312px; height: 122px;
         }
     }
 

@@ -2572,21 +2572,51 @@ mod about_ui_tests {
     #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
     fn stage63_help_about_opens_slint_attribution_dialog() -> Result<()> {
         let ui = AppWindow::new()?;
-        let workspace = PathBuf::from("C:\\NSRP_Stage63_ReadOnly_UI_Test");
+        // A deliberately long workspace path exercises the scrollable About
+        // detail area instead of only the short default test path.
+        let workspace = PathBuf::from(format!(
+            "C:\\NSRP_Stage63_ReadOnly_UI_Test\\{}",
+            "long_workspace_directory_name\\".repeat(10)
+        ));
         wire_about_dialog(&ui, &workspace);
 
         assert!(!ui.get_about_open(), "About dialog must start closed");
-        ui.invoke_show_about();
-        assert!(
-            ui.get_about_open(),
-            "Help > About callback must open dialog"
-        );
-        let details = ui.get_about_details().to_string();
-        assert!(details.contains(&format!("NSRP v{APP_VERSION}")));
-        assert!(details.contains(&workspace.to_string_lossy().to_string()));
+        for factor in [1.0_f32, 1.25, 1.5] {
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+                    scale_factor: factor,
+                });
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::Resized {
+                    size: slint::LogicalSize::new(1400.0, 760.0),
+                });
+            ui.invoke_show_about();
+            assert!(
+                ui.get_about_open(),
+                "Help > About must open at scale {factor}"
+            );
+            let details = ui.get_about_details().to_string();
+            assert!(details.contains(&format!("NSRP v{APP_VERSION}")));
+            assert!(details.contains(&workspace.to_string_lossy().to_string()));
 
-        ui.set_about_open(false);
-        assert!(!ui.get_about_open(), "About dialog must close cleanly");
+            // 680x446 About panel is centered in the 1400x760 logical
+            // window. The visible 88x34 close button is at its top right.
+            let click = slint::LogicalPosition::new(975.0, 185.0);
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                    position: click,
+                    button: slint::platform::PointerEventButton::Left,
+                });
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                    position: click,
+                    button: slint::platform::PointerEventButton::Left,
+                });
+            assert!(
+                !ui.get_about_open(),
+                "Visible close button failed at scale {factor}"
+            );
+        }
         Ok(())
     }
 }

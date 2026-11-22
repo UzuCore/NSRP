@@ -393,8 +393,14 @@ mod tests {
                 });
             stage54_click(&window, 60.0, 11.0); // Help menu
             assert_eq!(window.get_menu_open(), 2, "scale={factor}");
-            stage54_click(&window, 105.0, 99.0); // Recovery entry
+            // The Help menu no longer exposes the recovery-history entry.
+            // Clicking its former position must only dismiss the menu.
+            stage54_click(&window, 105.0, 99.0);
             assert_eq!(window.get_menu_open(), 0, "scale={factor}");
+            assert!(!window.get_recovery_open(), "hidden item, scale={factor}");
+            // Keep the internal read-only inspector's pointer/DPI regression
+            // independent of the now-removed public menu entry.
+            window.invoke_show_recovery();
             assert!(window.get_recovery_open(), "scale={factor}");
             window
                 .window()
