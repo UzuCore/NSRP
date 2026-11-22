@@ -1,0 +1,8 @@
+﻿LibHac hactoolnet NativeAOT fallback
+Source: https://gitlab.com/ryujinx-classic/LibHac.git
+Source commit: fefa38ff
+Target: win-x64 NativeAOT, BuildType=native-minimal
+Purpose: robust BKTR base+update NCA extraction fallback for patch operations
+Binary: bin/hactoolnet.exe
+SHA-256: DD7BBA5FEA4332C6DF581511C38E3E6920B6A5292325573E7A5C1EA40D6A306D
+License: bin/LibHac_LICENSE.txt

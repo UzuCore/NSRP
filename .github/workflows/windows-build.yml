@@ -1,0 +1,99 @@
+name: Build NSRP for Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish a public Release after reviewing all remaining third-party licenses'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nsrp-manual-windows-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout reviewed sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate checked-in embedded inputs
+        shell: powershell
+        run: .\scripts\verify_embedded_inputs.ps1
+
+      - name: Refuse private keys, unreviewed binaries or local QA paths
+        shell: powershell
+        run: .\scripts\check-public-tree.ps1
+
+      - name: Check source formatting
+        shell: cmd
+        run: cargo fmt --all --check
+
+      - name: Run Rust library tests
+        shell: cmd
+        run: cargo test --locked --lib
+
+      - name: Run Windows GUI unit tests
+        shell: cmd
+        run: cargo test --locked --bin nsrp
+
+      - name: Run isolated Slint window test
+        shell: cmd
+        run: cargo test --locked --bin nsrp stage60_drop_output_state_and_tab_epoch_are_preserved -- --ignored --test-threads=1
+
+      - name: Check Rust lints
+        shell: cmd
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build and package allowlisted Windows distribution
+        shell: cmd
+        run: build.bat
+
+      - name: Verify packaged ZIP
+        shell: powershell
+        run: .\scripts\verify-package.ps1 -PackageZip .\dist\nsrp-win64.zip -StagingDir .\build\package
+
+      - name: Verify update installer and rollback in disposable folders
+        shell: powershell
+        run: .\scripts\test-auto-update.ps1 -RunDelayedFailure
+
+      - name: Upload Windows distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsrp-win64
+          path: dist/nsrp-win64.zip
+          if-no-files-found: error
+
+      - name: Publish KST-dated GitHub Release (explicit opt-in)
+        if: ${{ inputs.publish_release == true }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $kst = [System.TimeZoneInfo]::ConvertTimeFromUtc(
+            [datetime]::UtcNow,
+            [System.TimeZoneInfo]::FindSystemTimeZoneById('Korea Standard Time')
+          )
+          $date = $kst.ToString('yyyyMMdd-HHmmss')
+          $tag = "build-$date-KST-r${{ github.run_number }}"
+          $commit = $env:GITHUB_SHA.ToLowerInvariant()
+          $short = $commit.Substring(0, 7)
+          $notes = "NSRP Windows x64 build`nVersion: $((Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)' | Select-Object -First 1).Matches.Groups[1].Value)`nCommit: $commit`nReleased: $($kst.ToString('yyyy-MM-dd HH:mm:ss')) KST`n`nOnly nsrp.exe and the verified manifest are applied during automatic updates. Existing game data, keys and settings are never included in this ZIP. Native Program/Control NCA repacking does not ship the former GPL packer. Review THIRD_PARTY_NOTICES.md for the remaining independent tool licenses."
+          & gh release create $tag 'dist/nsrp-win64.zip' `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $commit `
+            --title "NSRP $short ($($kst.ToString('yyyy-MM-dd HH:mm')) KST)" `
+            --notes $notes `
+            --latest
+          if ($LASTEXITCODE -ne 0) { throw 'NSRP GitHub Release publication failed.' }

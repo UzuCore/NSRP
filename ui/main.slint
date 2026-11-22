@@ -1,0 +1,1220 @@
+import { LineEdit, ListView, Palette, ScrollView, StandardListView } from "std-widgets.slint";
+
+component SectionLabel inherits Rectangle {
+    in property <string> text;
+    background: transparent;
+    private property <bool> legacy: root.text == "NCA 감지" || root.text == "언어별 타이틀 및 로고 수정" || root.text == "내부 구조 (파일 리스트)";
+    if root.text == "NCA 감지" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/section_nca.png"); }
+    if root.text == "언어별 타이틀 및 로고 수정" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/section_title.png"); }
+    if root.text == "내부 구조 (파일 리스트)" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/section_structure.png"); }
+    if !root.legacy : Text { text:root.text; color:#202124; font-size:14px; font-weight:700; vertical-alignment:center; }
+}
+component FieldLabel inherits Rectangle {
+    in property <string> text;
+    in property <int> font-weight: 400;
+    background: transparent;
+    private property <bool> legacy:
+        root.text == "출력 폴더" || root.text == "NSP / XCI / NSZ / XCZ 파일 또는 폴더" || root.text == "패치 파일 (ZIP 또는 폴더)" ||
+        root.text == "ZIP 암호 (있는 경우)" || root.text == "필요 펌웨어 버전 (버전 무시)" || root.text == "NSP / XCI / NSZ / XCZ 파일" ||
+        root.text == "영어" || root.text == "일본어" || root.text == "한국어" || root.text == "변환할 포맷:" || root.text == "NSP/XCI 파일 또는 폴더" ||
+        root.text == "압축률" || root.text == "스레드" || root.text == "NSZ/XCZ 파일 또는 폴더" || root.text == "압축 해제 스레드" || root.text == "출력 포맷:";
+    if root.text == "출력 폴더" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_output.png"); }
+    if root.text == "NSP / XCI / NSZ / XCZ 파일 또는 폴더" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_package_folder.png"); }
+    if root.text == "패치 파일 (ZIP 또는 폴더)" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_patch_files.png"); }
+    if root.text == "ZIP 암호 (있는 경우)" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_zip.png"); }
+    if root.text == "필요 펌웨어 버전 (버전 무시)" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_required.png"); }
+    if root.text == "NSP / XCI / NSZ / XCZ 파일" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_package_file.png"); }
+    if root.text == "영어" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_english.png"); }
+    if root.text == "일본어" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_japanese.png"); }
+    if root.text == "한국어" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_korean.png"); }
+    if root.text == "변환할 포맷:" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_convert_format.png"); }
+    if root.text == "NSP/XCI 파일 또는 폴더" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_compress_top.png"); }
+    if root.text == "압축률" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_compression.png"); }
+    if root.text == "스레드" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread.png"); }
+    if root.text == "NSZ/XCZ 파일 또는 폴더" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_decompress_top.png"); }
+    if root.text == "압축 해제 스레드" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_merge_thread.png"); }
+    if root.text == "출력 포맷:" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_output_format.png"); }
+    if !root.legacy : Text { text:root.text; color:#202124; font-size:12px; font-weight:root.font-weight; vertical-alignment:center; }
+}
+component LegacyTooltip inherits Rectangle {
+    in property <string> text;
+    background: #ffffe1;
+    border-width: 1px;
+    border-color: #767676;
+    border-radius: 2px;
+    Text {
+        x: 6px; y: 4px;
+        width: parent.width - 12px; height: parent.height - 8px;
+        text: root.text;
+        color: #202020;
+        font-family: "맑은 고딕";
+        font-size: 11px;
+        wrap: word-wrap;
+        vertical-alignment: center;
+    }
+}
+component QtCheckBox inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    background: transparent;
+
+    if root.text == "작업 완료 시 알림창 띄우기" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_notify_off.png"); }
+    if root.text == "작업 완료 시 알림창 띄우기" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_notify_on.png"); }
+    if root.text == "작업 후 로그 저장" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_save_log_off.png"); }
+    if root.text == "작업 후 로그 저장" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_save_log_on.png"); }
+    if root.text == "NCA 파일 내부까지 분해" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_unpack_nca_off.png"); }
+    if root.text == "NCA 파일 내부까지 분해" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_unpack_nca_on.png"); }
+    if root.text == "출력 후 압축" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_compress_after_off.png"); }
+    if root.text == "출력 후 압축" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_compress_after_on.png"); }
+    if root.text == "압축 후 원본 삭제" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_remove_compress_off.png"); }
+    if root.text == "압축 후 원본 삭제" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_remove_compress_on.png"); }
+    if root.text == "블록 모드" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_block_mode_off.png"); }
+    if root.text == "블록 모드" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_block_mode_on.png"); }
+    if root.text == "해제 후 원본 삭제" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_remove_decompress_off.png"); }
+    if root.text == "해제 후 원본 삭제" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_remove_decompress_on.png"); }
+    if root.text == "타이틀 가져오기" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_fetch_title_off.png"); }
+    if root.text == "타이틀 가져오기" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/check_fetch_title_on.png"); }
+
+}
+component QtRadioButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback clicked();
+    background: transparent;
+    if root.text == "NSP" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_nsp_on.png"); }
+    if root.text == "NSP" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_nsp_off.png"); }
+    if root.text == "XCI" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_xci_on.png"); }
+    if root.text == "XCI" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_xci_off.png"); }
+    TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled: root.enabled; clicked => { root.clicked(); } }
+}
+component QtSlider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in-out property <float> value: minimum;
+    private property <length> usable-width: max(1px, root.width - 14px);
+    private property <length> handle-x: (root.value - root.minimum) / max(0.0001, root.maximum - root.minimum) * root.usable-width;
+    private property <bool> exact-level: root.maximum == 23 && root.value >= 1 && root.value <= 23;
+    private property <bool> exact-thread: root.maximum == 13 && root.value >= 1 && root.value <= 13;
+    background: transparent;
+    if root.maximum == 23 && root.value == 1 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_1.png"); }
+    if root.maximum == 23 && root.value == 2 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_2.png"); }
+    if root.maximum == 23 && root.value == 3 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_3.png"); }
+    if root.maximum == 23 && root.value == 4 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_4.png"); }
+    if root.maximum == 23 && root.value == 5 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_5.png"); }
+    if root.maximum == 23 && root.value == 6 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_6.png"); }
+    if root.maximum == 23 && root.value == 7 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_7.png"); }
+    if root.maximum == 23 && root.value == 8 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_8.png"); }
+    if root.maximum == 23 && root.value == 9 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_9.png"); }
+    if root.maximum == 23 && root.value == 10 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_10.png"); }
+    if root.maximum == 23 && root.value == 11 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_11.png"); }
+    if root.maximum == 23 && root.value == 12 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_12.png"); }
+    if root.maximum == 23 && root.value == 13 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_13.png"); }
+    if root.maximum == 23 && root.value == 14 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_14.png"); }
+    if root.maximum == 23 && root.value == 15 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_15.png"); }
+    if root.maximum == 23 && root.value == 16 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_16.png"); }
+    if root.maximum == 23 && root.value == 17 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_17.png"); }
+    if root.maximum == 23 && root.value == 18 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_18.png"); }
+    if root.maximum == 23 && root.value == 19 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_19.png"); }
+    if root.maximum == 23 && root.value == 20 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_20.png"); }
+    if root.maximum == 23 && root.value == 21 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_21.png"); }
+    if root.maximum == 23 && root.value == 22 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_22.png"); }
+    if root.maximum == 23 && root.value == 23 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_level_23.png"); }
+    if root.maximum == 13 && root.value == 1 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_1.png"); }
+    if root.maximum == 13 && root.value == 2 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_2.png"); }
+    if root.maximum == 13 && root.value == 3 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_3.png"); }
+    if root.maximum == 13 && root.value == 4 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_4.png"); }
+    if root.maximum == 13 && root.value == 5 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_5.png"); }
+    if root.maximum == 13 && root.value == 6 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_6.png"); }
+    if root.maximum == 13 && root.value == 7 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_7.png"); }
+    if root.maximum == 13 && root.value == 8 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_8.png"); }
+    if root.maximum == 13 && root.value == 9 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_9.png"); }
+    if root.maximum == 13 && root.value == 10 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_10.png"); }
+    if root.maximum == 13 && root.value == 11 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_11.png"); }
+    if root.maximum == 13 && root.value == 12 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_12.png"); }
+    if root.maximum == 13 && root.value == 13 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/slider_thread_13.png"); }
+    if !root.exact-level && !root.exact-thread : Rectangle { x:7px; y:9px; width:root.width - 14px; height:4px; background:#e0e0e0; border-radius:2px; }
+    if !root.exact-level && !root.exact-thread : Rectangle { x:7px; y:9px; width:max(0px,root.handle-x); height:4px; background:#0969da; border-radius:2px; }
+    if !root.exact-level && !root.exact-thread : Rectangle { x:root.handle-x; y:4px; width:14px; height:14px; background:slider-touch.has-hover ? #f0f7ff : white; border-width:2px; border-color:slider-touch.has-hover ? #034ea2 : #0969da; border-radius:7px; }
+    slider-touch := TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        clicked => { root.value = Math.round(root.minimum + max(0px,min(root.usable-width,self.mouse-x - 7px))/root.usable-width*(root.maximum - root.minimum)); }
+        moved => { if (self.pressed) { root.value = Math.round(root.minimum + max(0px,min(root.usable-width,self.mouse-x - 7px))/root.usable-width*(root.maximum - root.minimum)); } }
+    }
+}
+component LegacyLevelValue inherits Rectangle {
+    in property <float> value;
+    background: transparent;
+    if root.value == 1 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_1.png"); }
+    if root.value == 2 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_2.png"); }
+    if root.value == 3 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_3.png"); }
+    if root.value == 4 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_4.png"); }
+    if root.value == 5 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_5.png"); }
+    if root.value == 6 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_6.png"); }
+    if root.value == 7 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_7.png"); }
+    if root.value == 8 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_8.png"); }
+    if root.value == 9 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_9.png"); }
+    if root.value == 10 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_10.png"); }
+    if root.value == 11 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_11.png"); }
+    if root.value == 12 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_12.png"); }
+    if root.value == 13 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_13.png"); }
+    if root.value == 14 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_14.png"); }
+    if root.value == 15 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_15.png"); }
+    if root.value == 16 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_16.png"); }
+    if root.value == 17 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_17.png"); }
+    if root.value == 18 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_18.png"); }
+    if root.value == 19 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_19.png"); }
+    if root.value == 20 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_20.png"); }
+    if root.value == 21 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_21.png"); }
+    if root.value == 22 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_22.png"); }
+    if root.value == 23 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_level_23.png"); }
+}
+
+component LegacyThreadValue inherits Rectangle {
+    in property <float> value;
+    in property <int> core-count;
+    background: transparent;
+    if root.core-count == 12 && root.value == 1 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_1.png"); }
+    if root.core-count == 12 && root.value == 2 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_2.png"); }
+    if root.core-count == 12 && root.value == 3 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_3.png"); }
+    if root.core-count == 12 && root.value == 4 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_4.png"); }
+    if root.core-count == 12 && root.value == 5 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_5.png"); }
+    if root.core-count == 12 && root.value == 6 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_6.png"); }
+    if root.core-count == 12 && root.value == 7 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_7.png"); }
+    if root.core-count == 12 && root.value == 8 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_8.png"); }
+    if root.core-count == 12 && root.value == 9 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_9.png"); }
+    if root.core-count == 12 && root.value == 10 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_10.png"); }
+    if root.core-count == 12 && root.value == 11 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_11.png"); }
+    if root.core-count == 12 && root.value == 12 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_12.png"); }
+    if root.core-count == 12 && root.value == 13 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/label_thread_13.png"); }
+    if root.core-count != 12 : Text { text: root.value > root.core-count ? "자동 (" + root.core-count + ")" : "" + Math.round(root.value); color:#202124; font-size:12px; font-weight:700; vertical-alignment:center; }
+}
+
+component QtProgressBar inherits Rectangle {
+    in property <float> progress: 0;
+    background: transparent;
+    if root.progress <= 0 : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/progress_0.png"); }
+    if root.progress > 0 : Rectangle {
+        width: parent.width; height: parent.height;
+        background: #e6e6e6; border-width: 1px; border-color: #bcbcbc;
+        Rectangle {
+            x: 1px; y: 1px;
+            width: max(0px, (parent.width - 2px) * min(1, max(0, root.progress)));
+            height: parent.height - 2px; background: #06a0dc;
+        }
+        Text {
+            text: "" + Math.round(min(1, max(0, root.progress)) * 100) + "%";
+            color: #000000; font-size: 9px;
+            horizontal-alignment: center; vertical-alignment: center;
+        }
+    }
+}
+
+component LegacyButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked();
+    background: transparent;
+
+    if root.text == "+ 파일 추가" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_add_file.png"); }
+    if root.text == "+ 폴더 추가" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_add_folder.png"); }
+    if root.text == "- 선택 삭제" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_del_selected.png"); }
+    if root.text == "- 모두 삭제" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_clear_all.png"); }
+    if root.text == "파일 찾기" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_file_find.png"); }
+    if root.text == "폴더 선택" : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_folder_select.png"); }
+    if root.text == "초기화" && root.width >= 392px : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_reset_392.png"); }
+    if root.text == "초기화" && root.width < 392px : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/btn_reset_391.png"); }
+
+    TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled: root.enabled; clicked => { root.clicked(); } }
+}
+component LegacyTripleStack inherits Rectangle {
+    in property <bool> patch-stack:false; callback add-file(); callback add-folder(); callback remove-selected(); background:transparent;
+    if !root.patch-stack : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/stack_patch_input.png"); }
+    if root.patch-stack : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/stack_patch_patch.png"); }
+    TouchArea { x:0px; y:0px; width:78px; height:30px; clicked=>{root.add-file();} }
+    TouchArea { x:0px; y:36px; width:78px; height:30px; clicked=>{root.add-folder();} }
+    TouchArea { x:0px; y:72px; width:78px; height:30px; clicked=>{root.remove-selected();} }
+}
+component LegacyFourStack inherits Rectangle {
+    callback add-file(); callback add-folder(); callback remove-selected(); callback clear-all(); background:transparent;
+    Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/stack_four.png"); }
+    TouchArea { x:0px; y:0px; width:78px; height:30px; clicked=>{root.add-file();} }
+    TouchArea { x:0px; y:36px; width:78px; height:30px; clicked=>{root.add-folder();} }
+    TouchArea { x:0px; y:72px; width:78px; height:30px; clicked=>{root.remove-selected();} }
+    TouchArea { x:0px; y:108px; width:78px; height:30px; clicked=>{root.clear-all();} }
+}
+component StatusProgress inherits Rectangle {
+    in property <float> progress: 0;
+    width: 180px;
+    background: transparent;
+    QtProgressBar { x: 0px; y: 4px; width: 180px; height: 14px; progress: root.progress; }
+}
+component ResourceLabel inherits HorizontalLayout {
+    in property <string> text;
+    in property <int> char-count;
+    width: root.text == "" ? 27px : root.char-count * 7px + 20px;
+    height: 16px;
+    vertical-stretch: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+    Text {
+        text: root.text;
+        color: #000000;
+        font-family: "Consolas";
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+}
+component PathBox inherits Rectangle {
+    in property <[StandardListViewItem]> model;
+    in-out property <int> current-item: -1;
+    callback row-selected(int);
+    private property <bool> known-size:
+        (root.width == 705px && (root.height == 136px || root.height == 464px || root.height == 438px || root.height == 462px || root.height == 426px || root.height == 500px)) ||
+        (root.width == 717px && root.height == 35px) || (root.width == 715px && root.height == 35px) ||
+        (root.width == 478px && root.height == 192px);
+    background: root.known-size ? transparent : #ffffff;
+    border-width: root.known-size ? 0px : 1px;
+    border-color: #b8b8b8;
+
+    if root.width == 705px && root.height == 136px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x136.png"); }
+    if root.width == 717px && root.height == 35px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_717x35.png"); }
+    if root.width == 715px && root.height == 35px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_715x35.png"); }
+    if root.width == 478px && root.height == 192px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_478x192.png"); }
+    if root.width == 705px && root.height == 464px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x464.png"); }
+    if root.width == 705px && root.height == 438px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x438.png"); }
+    if root.width == 705px && root.height == 462px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x462.png"); }
+    if root.width == 705px && root.height == 426px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x426.png"); }
+    if root.width == 705px && root.height == 500px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/list_705x500.png"); }
+
+    if root.model.length > 0 : ListView {
+        x: 2px; y: 2px; width: parent.width - 4px; height: parent.height - 4px;
+        for item[index] in root.model : Rectangle {
+            width: root.width - 4px;
+            height: 18px;
+            background: #ffffff;
+            if index == root.current-item && root.width == 705px : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/list_selected_row_705.png"); }
+            if index == root.current-item && root.width == 717px : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/list_selected_row_717.png"); }
+            if index == root.current-item && root.width == 715px : Image { width: parent.width; height: parent.height; source: @image-url("legacy_assets/list_selected_row_715.png"); }
+            if index == root.current-item && root.width != 705px && root.width != 717px && root.width != 715px : Rectangle { width: parent.width; height: parent.height; background:#d9d9d9; }
+            Text {
+                x: 2px; width: parent.width - 4px; height: parent.height;
+                text: item.text;
+                color: #000000;
+                font-family: "맑은 고딕";
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            row-touch := TouchArea {
+                x:0px; y:0px; width:parent.width; height:parent.height;
+                clicked => { root.current-item = index; root.row-selected(index); }
+            }
+        }
+    }
+}
+component LegacyLineEdit inherits Rectangle {
+    in-out property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> read-only: false;
+    background: transparent;
+    if root.width <= 201px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_200.png"); }
+    if root.width == 482px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_482.png"); }
+    if root.width == 560px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_560.png"); }
+    if root.width == 613px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_613.png"); }
+    if root.width == 635px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_635.png"); }
+    if root.width == 683px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_683.png"); }
+    if root.width > 201px && root.width != 482px && root.width != 560px && root.width != 613px && root.width != 635px && root.width != 683px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_613.png"); }
+    TextInput {
+        x: 5px; y: 1px; width: parent.width - 10px; height: parent.height - 2px;
+        text <=> root.text;
+        enabled: root.enabled;
+        read-only: root.read-only;
+        single-line: true;
+        vertical-alignment: center;
+        color: root.enabled ? #000000 : #808080;
+        font-family: "맑은 고딕";
+        font-size: 12px;
+    }
+}
+
+component LegacyRequiredVersion inherits Rectangle {
+    in-out property <string> text;
+    in property <string> display-text;
+    in property <bool> enabled;
+    callback clicked();
+    background: transparent;
+    if !root.enabled : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/combo_disabled_160.png"); }
+    if root.enabled : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/combo_active_160.png"); }
+    if root.enabled : Text {
+        x:5px; y:0px; width:parent.width - 27px; height:parent.height;
+        text:root.display-text; color:#000000; font-family:"맑은 고딕"; font-size:12px;
+        vertical-alignment:center; overflow:elide;
+    }
+    TouchArea { width:parent.width; height:parent.height; enabled:root.enabled; clicked => { root.clicked(); } }
+}
+component OutputFolderRow inherits Rectangle {
+    in-out property <string> output-dir;
+    callback choose();
+    height: 32px;
+    background: transparent;
+    FieldLabel { x:0px; y:0px; width:70px; height:32px; text:"출력 폴더"; }
+    LegacyLineEdit { x:78px; y:5px; width:parent.width - 176px; height:22px; text <=> root.output-dir; read-only:true; }
+    LegacyButton { x:parent.width - 90px; y:4px; width:90px; height:24px; text:"폴더 선택"; clicked => { root.choose(); } }
+}
+component BlueAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> action-enabled: true;
+    callback clicked();
+    private property <bool> legacy-active: root.action-enabled && (root.text == "변환 시작" || root.text == "압축 시작" || root.text == "압축 해제 시작" || root.text == "병합 시작" || root.text == "분할 시작");
+    height: 36px;
+    background: transparent;
+
+    if !root.action-enabled && root.text == "빌드하기" : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/action_build_disabled.png"); }
+    if !root.action-enabled && root.text == "선택 항목 분해" : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/action_extract_disabled.png"); }
+    if !root.action-enabled && root.text == "분석 시작" : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/action_analyze_disabled.png"); }
+    if !root.action-enabled && root.text == "헤더 검사" : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/action_verify_disabled.png"); }
+
+    if root.action-enabled && root.text == "변환 시작" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_convert.png"); }
+    if root.action-enabled && root.text == "압축 시작" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_compress.png"); }
+    if root.action-enabled && root.text == "압축 해제 시작" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_decompress.png"); }
+    if root.action-enabled && root.text == "병합 시작" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_merge.png"); }
+    if root.action-enabled && root.text == "분할 시작" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_split.png"); }
+    if root.action-enabled && root.text == "헤더 검사" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_verify.png"); }
+
+    if root.action-enabled && !root.legacy-active : Rectangle {
+        width: parent.width; height: parent.height;
+        background: touch.has-hover ? #034ea2 : #1f6feb;
+        border-radius: 4px;
+        Text { text: root.text; color: white; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled: root.action-enabled; clicked => { root.clicked(); } }
+}
+component RedAction inherits Rectangle {
+    in property <string> text;
+    in property <bool> action-enabled: true;
+    callback clicked();
+    height: 36px;
+    background: root.action-enabled ? (touch.has-hover ? #a01724 : #d73a49) : transparent;
+    border-radius: 4px;
+    if !root.action-enabled && root.width == 390px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_stop_disabled_390.png"); }
+    if !root.action-enabled && root.width == 391px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_stop_disabled_391.png"); }
+    if !root.action-enabled && root.width == 789px : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/action_stop_disabled_789.png"); }
+    if root.action-enabled : Text { text: root.text; color: white; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled:root.action-enabled; clicked => { root.clicked(); } }
+}
+
+export struct TreeRow {
+    name: string,
+    size: string,
+    offset: string,
+    selected: bool,
+}
+
+export struct ContentRow {
+    title-id: string,
+    version: string,
+    system-version: string,
+    build-id: string,
+}
+
+export struct FirmwareChoice {
+    label: string,
+    value: string,
+}
+
+
+component PlaceholderTree inherits Rectangle {
+    in property <string> header;
+    in property <string> body;
+    in property <[TreeRow]> rows;
+    callback row-clicked(int);
+    private property <bool> legacy-empty: root.body == "" && root.rows.length == 0 && root.width == 789px && root.height == 385px;
+    background: root.legacy-empty ? transparent : white;
+    border-width: root.legacy-empty ? 0px : 1px;
+    border-color: #b8b8b8;
+    if root.legacy-empty : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/tree_extract_empty.png"); }
+    if root.rows.length > 0 : Rectangle {
+        width:parent.width; height:parent.height; background:#ffffff;
+        Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/tree_extract_empty.png"); }
+        ListView {
+            x:1px; y:25px; width:parent.width - 2px; height:parent.height - 26px;
+            for row[index] in root.rows : Rectangle {
+                width:parent.width; height:18px; background:row.selected ? #d9d9d9 : #ffffff;
+                Text { x:23px; width:293px; height:18px; text:row.name; color:#000000; font-family:"맑은 고딕"; font-size:12px; letter-spacing:0.2px; vertical-alignment:center; overflow:elide; }
+                Text { x:324px; width:82px; height:18px; text:row.size; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
+                Text { x:413px; width:367px; height:18px; text:row.offset; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
+                TouchArea { width:parent.width; height:parent.height; clicked => { root.row-clicked(index); } }
+            }
+        }
+    }
+    if !root.legacy-empty : VerticalLayout {
+        spacing: 0px;
+        Rectangle { height: 28px; background: #f5f5f5; Text { x: 8px; text: root.header; color: #202124; font-size: 12px; vertical-alignment: center; } }
+        Text { text: root.body; color: #777777; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+    }
+}
+component AnalyzeFileTree inherits Rectangle {
+    in property <[TreeRow]> rows;
+    background: transparent;
+    Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/analyze_file_tree_empty.png"); }
+    if root.rows.length > 0 : ListView {
+        x:1px; y:25px; width:parent.width - 2px; height:parent.height - 26px;
+        for row in root.rows : Rectangle {
+            width:parent.width; height:18px; background:#ffffff;
+            Text { x:23px; width:293px; height:18px; text:row.name; color:#000000; font-family:"맑은 고딕"; font-size:12px; letter-spacing:0.2px; vertical-alignment:center; overflow:elide; }
+            Text { x:324px; width:82px; height:18px; text:row.size; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
+            Text { x:413px; width:330px; height:18px; text:row.offset; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
+        }
+    }
+}
+
+component AnalyzeContentFields inherits Rectangle {
+    in property <ContentRow> content-data;
+    in property <bool> dlc-mode: false;
+    background: transparent;
+    FieldLabel { x:16px; y:12px; width:110px; height:22px; text:"타이틀 ID"; }
+    LegacyLineEdit { x:132px; y:12px; width:635px; height:22px; text:root.content-data.title-id; read-only:true; }
+    if !root.dlc-mode : FieldLabel { x:16px; y:40px; width:110px; height:22px; text:"버전"; }
+    if !root.dlc-mode : LegacyLineEdit { x:132px; y:40px; width:635px; height:22px; text:root.content-data.version; read-only:true; }
+    if !root.dlc-mode : FieldLabel { x:16px; y:68px; width:110px; height:22px; text:"최소 시스템 버전"; }
+    if !root.dlc-mode : LegacyLineEdit { x:132px; y:68px; width:635px; height:22px; text:root.content-data.system-version; read-only:true; }
+    FieldLabel { x:16px; y:root.dlc-mode ? 40px : 96px; width:110px; height:22px; text:"빌드 ID"; }
+    LegacyLineEdit { x:132px; y:root.dlc-mode ? 40px : 96px; width:635px; height:22px; text:root.content-data.build-id; read-only:true; }
+}
+
+component AnalyzeContentTree inherits Rectangle {
+    in property <[ContentRow]> rows;
+    in property <bool> dlc-mode: false;
+    background: #ffffff;
+    border-width: 1px;
+    border-color: #b8b8b8;
+    Rectangle {
+        x:1px; y:1px; width:parent.width - 2px; height:24px; background:#f5f5f5;
+        Text { x:8px; width:36px; height:24px; text:"#"; color:#000000; font-size:12px; vertical-alignment:center; }
+        Text { x:48px; width:165px; height:24px; text:"타이틀 ID"; color:#000000; font-size:12px; vertical-alignment:center; }
+        if !root.dlc-mode : Text { x:218px; width:72px; height:24px; text:"버전"; color:#000000; font-size:12px; vertical-alignment:center; }
+        if !root.dlc-mode : Text { x:294px; width:130px; height:24px; text:"최소 시스템 버전"; color:#000000; font-size:12px; vertical-alignment:center; }
+        Text { x:root.dlc-mode ? 218px : 430px; width:root.dlc-mode ? 520px : 310px; height:24px; text:"빌드 ID"; color:#000000; font-size:12px; vertical-alignment:center; }
+    }
+    ListView {
+        x:1px; y:25px; width:parent.width - 2px; height:parent.height - 26px;
+        for row[index] in root.rows : Rectangle {
+            width:parent.width; height:18px; background:#ffffff;
+            Text { x:8px; width:36px; height:18px; text:index + 1; color:#000000; font-size:12px; vertical-alignment:center; overflow:elide; }
+            Text { x:48px; width:165px; height:18px; text:row.title-id; color:#000000; font-size:12px; vertical-alignment:center; overflow:elide; }
+            if !root.dlc-mode : Text { x:218px; width:72px; height:18px; text:row.version; color:#000000; font-size:12px; vertical-alignment:center; overflow:elide; }
+            if !root.dlc-mode : Text { x:294px; width:130px; height:18px; text:row.system-version; color:#000000; font-size:12px; vertical-alignment:center; overflow:elide; }
+            Text { x:root.dlc-mode ? 218px : 430px; width:root.dlc-mode ? 520px : 310px; height:18px; text:row.build-id; color:#000000; font-size:12px; vertical-alignment:center; overflow:elide; }
+        }
+    }
+}
+
+component QtTabButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 24px;
+    background: root.selected ? #f9f9f9 : #f0f0f0;
+    if root.selected : Rectangle { x: 0px; y: 0px; width: 1px; height: parent.height; background: #e5e5e5; }
+    if !root.selected : Rectangle { x: parent.width - 1px; y: 0px; width: 1px; height: parent.height; background: #e5e5e5; }
+    if !root.selected : Rectangle { x: 0px; y: parent.height - 1px; width: parent.width; height: 1px; background: #e5e5e5; }
+    Text {
+        text: root.text;
+        color: root.enabled ? #000000 : #808080;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled:root.enabled; clicked => { root.clicked(); } }
+}
+
+export struct LogRow {
+    text: string,
+    tone: int,
+}
+
+component QtLogView inherits Rectangle {
+    in property <[LogRow]> rows;
+    background: transparent;
+    if root.rows.length == 0 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/log_empty.png"); }
+    if root.rows.length > 0 : Rectangle {
+        width:parent.width; height:parent.height; background:#ffffff; border-width:1px; border-color:#b8b8b8;
+        ListView {
+            x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 8px;
+            for row in root.rows : Text {
+                width: parent.width;
+                height: 16px;
+                text: row.text;
+                color: row.tone == 1 ? #2da44e : (row.tone == 2 ? #b07d00 : (row.tone == 3 ? #cf222e : (row.tone == 4 ? #24292f : #57606a)));
+                font-family: "맑은 고딕";
+                font-size: 12px;
+                font-weight: row.tone == 1 || row.tone == 4 ? 700 : 400;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}
+export component AppWindow inherits Window {
+    init => { Palette.color-scheme = ColorScheme.light; }
+    title: "NSRP v" + root.app-version;
+    preferred-width: 1400px;
+    preferred-height: 760px;
+    min-width: 1400px;
+    min-height: 760px;
+    background: #f0f0f0;
+    default-font-family: "맑은 고딕";
+    default-font-size: 12px;
+    default-font-weight: 400;
+
+    in-out property <string> app-version: "";
+    in-out property <int> selected-tab: 0;
+    in-out property <int> menu-open: 0;
+    in-out property <string> input-paths: "";
+    in-out property <string> patch-paths: "";
+    in-out property <[StandardListViewItem]> input-items: [];
+    in-out property <[StandardListViewItem]> patch-items: [];
+    in-out property <int> input-current: -1;
+    in-out property <int> patch-current: -1;
+    in-out property <string> output-dir: "";
+    in-out property <string> status-text: "대기";
+    in-out property <string> log-text: "";
+    in-out property <[LogRow]> log-rows: [];
+    in-out property <[TreeRow]> extract-rows: [];
+    in-out property <bool> extract-analyzing: false;
+    in-out property <string> resource-text: "";
+    in-out property <int> resource-char-count: 0;
+    in-out property <float> progress: 0;
+    in-out property <float> compression-level: 18;
+    in-out property <float> thread-count: 1;
+    in-out property <int> core-count: 1;
+    in-out property <bool> remove-source: false;
+    in-out property <bool> block-mode: true;
+    in-out property <bool> notify-done: false;
+    in-out property <bool> save-log: false;
+    in-out property <bool> compress-after: false;
+    in-out property <bool> use-game-title: true;
+    in-out property <bool> unpack-nca: false;
+    in-out property <string> patch-analysis-text: "NSP를 등록하면 자동 분석됩니다.";
+    in-out property <bool> patch-analysis-ready: false;
+    in-out property <bool> patch-analyzing: false;
+    in-out property <bool> patch-version-enabled: false;
+    in-out property <bool> analyze-result-ready: false;
+    in-out property <bool> analyze-analyzing: false;
+    in-out property <bool> analyze-stop-requested: false;
+    in-out property <int> analyze-inner-tab: 0;
+    in-out property <string> analyze-game-title: "";
+    in-out property <string> analyze-title-id: "";
+    in-out property <string> analyze-package-type: "";
+    in-out property <string> analyze-publisher: "";
+    in-out property <string> analyze-display-version: "";
+    in-out property <string> analyze-age-rating: "";
+    in-out property <string> analyze-build-kind: "";
+    in-out property <[StandardListViewItem]> analyze-languages: [];
+    in-out property <[string]> analyze-language-titles: [];
+    in-out property <[string]> analyze-language-publishers: [];
+    in-out property <image> analyze-icon;
+    in-out property <bool> analyze-has-icon: false;
+    in-out property <[TreeRow]> analyze-file-rows: [];
+    in-out property <[ContentRow]> analyze-base-rows: [];
+    in-out property <[ContentRow]> analyze-update-rows: [];
+    in-out property <[ContentRow]> analyze-dlc-rows: [];
+    in-out property <string> target-format: "NSP";
+    in-out property <string> zip-password: "";
+    in-out property <string> required-system-version: "";
+    in-out property <string> required-system-version-display: "";
+    in-out property <string> patch-current-system-version: "";
+    in-out property <[FirmwareChoice]> firmware-choices: [];
+    in-out property <bool> firmware-menu-open: false;
+    in-out property <string> title-english: "";
+    in-out property <string> title-japanese: "";
+    in-out property <string> title-korean: "";
+    in-out property <string> title-icon: "";
+    in-out property <image> title-current-image;
+    in-out property <image> title-new-image;
+    in-out property <bool> title-has-current-image: false;
+    in-out property <bool> title-has-new-image: false;
+    in-out property <bool> title-analyzing: false;
+    in-out property <bool> title-analysis-done: false;
+    in-out property <bool> busy: false;
+    in-out property <bool> stop-requested: false;
+    // Stage53: purely read-only Program publication recovery inspection.
+    in-out property <bool> recovery-open: false;
+    in-out property <bool> recovery-loading: false;
+    in-out property <string> recovery-root: "";
+    in-out property <int> recovery-count: 0;
+    in-out property <[string]> recovery-lines: [];
+    private property <bool> tab-locked: root.busy || root.patch-analyzing || root.title-analyzing || root.extract-analyzing || root.analyze-analyzing;
+
+    callback choose-input();
+    callback choose-input-folder();
+    callback remove-input(int);
+    callback clear-input();
+    callback choose-patches();
+    callback choose-patch-folder();
+    callback remove-patch(int);
+    callback clear-patches();
+    callback choose-output();
+    callback choose-title-icon();
+    callback analyze-title();
+    callback analyze-patch();
+    callback analyze-extract();
+    callback analyze-package();
+    callback stop-analyze();
+    callback toggle-extract-row(int);
+    callback select-tab(int);
+    callback start-operation(int);
+    callback stop-operation();
+    callback clear-log();
+    callback reset-current();
+    callback exit-app();
+    callback show-about();
+    callback open-updates();
+    callback show-recovery();
+    callback refresh-recovery();
+    callback choose-recovery-root();
+
+    VerticalLayout {
+        padding: 0px; spacing: 0px;
+        Rectangle {
+            height: 22px;
+            background: #f0f0f0;
+            Image {
+                width: parent.width; height: parent.height;
+                source: root.menu-open == 1 || file-menu-touch.has-hover ? @image-url("legacy_assets/menubar_file_active.png") :
+                    (root.menu-open == 2 || help-menu-touch.has-hover ? @image-url("legacy_assets/menubar_help_active.png") : @image-url("legacy_assets/menubar.png"));
+            }
+            Rectangle {
+                x: 0px; y: 0px; width: 40px; height: 21px;
+                background: transparent;
+                file-menu-touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; clicked => { root.menu-open = root.menu-open == 1 ? 0 : 1; } }
+            }
+            Rectangle {
+                x: 40px; y: 0px; width: 52px; height: 21px;
+                background: transparent;
+                help-menu-touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; clicked => { root.menu-open = root.menu-open == 2 ? 0 : 2; } }
+            }
+        }
+        HorizontalLayout {
+            height: 717px;
+            padding: 10px; spacing: 5px;
+            Rectangle {
+                width: 835px;
+                background: #f0f0f0;
+                main-tabs := Rectangle {
+                    width: parent.width; height: parent.height;
+                    background: #f9f9f9;
+                    border-width: 1px; border-color: #e5e5e5;
+                    Rectangle {
+                        x: 0px; y: 0px; width: parent.width; height: 24px; background: #f0f0f0;
+                        if root.tab-locked && root.selected-tab == 0 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_0.png"); }
+                        if root.tab-locked && root.selected-tab == 1 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_1.png"); }
+                        if root.tab-locked && root.selected-tab == 2 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_2.png"); }
+                        if root.tab-locked && root.selected-tab == 3 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_3.png"); }
+                        if root.tab-locked && root.selected-tab == 4 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_4.png"); }
+                        if root.tab-locked && root.selected-tab == 5 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_5.png"); }
+                        if root.tab-locked && root.selected-tab == 6 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_6.png"); }
+                        if root.tab-locked && root.selected-tab == 7 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_7.png"); }
+                        if root.tab-locked && root.selected-tab == 8 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_busy_8.png"); }
+                        if !root.tab-locked && root.selected-tab == 0 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_0.png"); }
+                        if !root.tab-locked && root.selected-tab == 1 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_1.png"); }
+                        if !root.tab-locked && root.selected-tab == 2 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_2.png"); }
+                        if !root.tab-locked && root.selected-tab == 3 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_3.png"); }
+                        if !root.tab-locked && root.selected-tab == 4 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_4.png"); }
+                        if !root.tab-locked && root.selected-tab == 5 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_5.png"); }
+                        if !root.tab-locked && root.selected-tab == 6 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_6.png"); }
+                        if !root.tab-locked && root.selected-tab == 7 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_7.png"); }
+                        if !root.tab-locked && root.selected-tab == 8 : Image { x:0px; y:0px; width:472px; height:24px; source:@image-url("legacy_assets/tabbar_8.png"); }
+                        TouchArea { x:0px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 0; clicked => { root.select-tab(0); } }
+                        TouchArea { x:48px; y:0px; width:60px; height:24px; enabled:!root.tab-locked || root.selected-tab == 1; clicked => { root.select-tab(1); } }
+                        TouchArea { x:108px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 2; clicked => { root.select-tab(2); } }
+                        TouchArea { x:156px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 3; clicked => { root.select-tab(3); } }
+                        TouchArea { x:204px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 4; clicked => { root.select-tab(4); } }
+                        TouchArea { x:252px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 5; clicked => { root.select-tab(5); } }
+                        TouchArea { x:300px; y:0px; width:76px; height:24px; enabled:!root.tab-locked || root.selected-tab == 6; clicked => { root.select-tab(6); } }
+                        TouchArea { x:376px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 7; clicked => { root.select-tab(7); } }
+                        TouchArea { x:424px; y:0px; width:48px; height:24px; enabled:!root.tab-locked || root.selected-tab == 8; clicked => { root.select-tab(8); } }
+                    }
+                    Rectangle {
+                        x: 2px; y: 25px; width: 829px; height: 668px;
+                        background: #f9f9f9; clip: true;
+                        if root.selected-tab == 0 : Rectangle {
+                            width: parent.width; height: parent.height; background: #f9f9f9;
+                            FieldLabel { x: 20px; y: 10px; width: 789px; height: 16px; text: "NSP / XCI / NSZ / XCZ 파일 또는 폴더"; }
+                            PathBox { x: 20px; y: 32px; width: 705px; height: 136px; model: root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x: 731px; y: 32px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-input(); } }
+                            LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
+                            LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
+
+                            FieldLabel { x: 20px; y: 184px; width: 789px; height: 16px; text: "패치 파일 (ZIP 또는 폴더)"; }
+                            PathBox { x: 20px; y: 206px; width: 705px; height: 136px; model: root.patch-items; current-item <=> root.patch-current; }
+                            LegacyButton { x: 731px; y: 206px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-patches(); } }
+                            LegacyButton { x: 731px; y: 242px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-patch-folder(); } }
+                            LegacyButton { x: 731px; y: 278px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-patch(root.patch-current); } }
+
+                            SectionLabel { x: 20px; y: 358px; width: 789px; height: 20px; text: "NCA 감지"; }
+                            Rectangle {
+                                x: 20px; y: 384px; width: 789px; height: 100px; background: #ffffff; border-width: 1px; border-color: #b8b8b8;
+                                Text { x: 7px; y: 6px; text: root.patch-analysis-text; color: #555555; font-size: 12px; wrap: word-wrap; }
+                            }
+                            FieldLabel { x: 20px; y: 490px; width: 109px; height: 22px; text: "ZIP 암호 (있는 경우)"; }
+                            LegacyLineEdit { x: 135px; y: 490px; width: 200px; height: 22px; text <=> root.zip-password; }
+                            FieldLabel { x: 20px; y: 518px; width: 156px; height: 22px; text: "필요 펌웨어 버전 (버전 무시)"; }
+                            LegacyRequiredVersion { x: 182px; y: 518px; width: 160px; height: 22px; text <=> root.required-system-version; display-text: root.required-system-version-display; enabled: root.patch-version-enabled; clicked => { root.firmware-menu-open = !root.firmware-menu-open; } }
+                            OutputFolderRow { x: 20px; y: 546px; width: 789px; height: 32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x: 513px; y: 594px; width: 171px; height: 20px; text: "작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            QtCheckBox { x: 690px; y: 594px; width: 119px; height: 20px; text: "작업 후 로그 저장"; checked <=> root.save-log; }
+                            LegacyButton { x: 20px; y: 620px; width: 392px; height: 38px; text: "초기화"; clicked => { root.reset-current(); } }
+                            if !root.busy : BlueAction { x: 418px; y: 621px; width: 391px; height: 36px; text: "빌드하기"; action-enabled: root.patch-analysis-ready; clicked => { root.start-operation(0); } }
+                            if root.busy : RedAction { x: 418px; y: 621px; width: 391px; height: 36px; text: "중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            if root.input-items.length == 0 : Image { x:20px; y:384px; width:789px; height:100px; source:@image-url("legacy_assets/nca_empty.png"); }
+                            LegacyTripleStack { x:731px; y:32px; width:78px; height:102px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } }
+                            LegacyTripleStack { x:731px; y:206px; width:78px; height:102px; patch-stack:true; add-file => { root.choose-patches(); } add-folder => { root.choose-patch-folder(); } remove-selected => { root.remove-patch(root.patch-current); } }
+                            if root.firmware-menu-open : TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; clicked => { root.firmware-menu-open = false; } }
+                            if root.firmware-menu-open && root.patch-version-enabled : Rectangle {
+                                x:182px; y:540px; width:160px; height:min(root.firmware-choices.length * 18px + 2px, 218px);
+                                background:#ffffff; border-width:1px; border-color:#808080; clip:true;
+                                ListView {
+                                    x:1px; y:1px; width:158px; height:parent.height - 2px;
+                                    for choice[index] in root.firmware-choices : Rectangle {
+                                        width:158px; height:18px; background:choice-touch.has-hover ? #cce8ff : #ffffff;
+                                        Text { x:3px; width:152px; height:18px; text:choice.label; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
+                                        choice-touch := TouchArea { width:parent.width; height:parent.height; clicked => { root.required-system-version = choice.value; root.required-system-version-display = choice.label; root.firmware-menu-open = false; } }
+                                    }
+                                }
+                            }
+}
+                        if root.selected-tab == 1 : Rectangle {
+                            width: parent.width; height: parent.height; background: #f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일"; }
+                            PathBox { x:20px; y:32px; width:717px; height:35px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x:743px; y:34px; width:66px; height:30px; text:"파일 찾기"; enabled: !root.title-analyzing && !root.busy; clicked => { root.choose-input(); } }
+                            SectionLabel { x:20px; y:98px; width:789px; height:20px; text:"언어별 타이틀 및 로고 수정"; }
+                            FieldLabel { x:20px; y:124px; width:100px; height:22px; text:"영어"; }
+                            LegacyLineEdit { x:126px; y:124px; width:683px; height:22px; text <=> root.title-english; enabled: root.input-items.length > 0 && !root.busy && !root.title-analyzing; }
+                            FieldLabel { x:20px; y:152px; width:100px; height:22px; text:"일본어"; }
+                            LegacyLineEdit { x:126px; y:152px; width:683px; height:22px; text <=> root.title-japanese; enabled: root.input-items.length > 0 && !root.busy && !root.title-analyzing; }
+                            FieldLabel { x:20px; y:180px; width:100px; height:22px; text:"한국어"; }
+                            LegacyLineEdit { x:126px; y:180px; width:683px; height:22px; text <=> root.title-korean; enabled: root.input-items.length > 0 && !root.busy && !root.title-analyzing; }
+                            Rectangle {
+                                x:20px; y:218px; width:175px; height:175px; background:#f9f9f9; border-width:2px; border-color:#f0f0f0; border-radius:8px;
+                                if root.title-has-current-image : Image { x:0px; y:0px; width:parent.width; height:parent.height; source:root.title-current-image; image-fit:fill; }
+                                if !root.title-has-current-image : Text {
+                                    text: root.title-analyzing ? "분석 중..." : (root.title-analysis-done ? "로고 없음\n(클릭하여 선택)" : "원본 로고\n(파일 없음)");
+                                    color:#777; horizontal-alignment:center; vertical-alignment:center;
+                                }
+                                TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled: root.input-items.length > 0 && !root.title-analyzing && !root.busy; clicked => { root.choose-title-icon(); } }
+                            }
+                            if root.title-has-new-image : Text { x:215px; y:280px; width:38px; height:75px; text:">"; font-family:"Consolas"; font-size:32px; font-weight:700; color:#8b949e; horizontal-alignment:center; vertical-alignment:center; }
+                            if root.title-has-new-image : Rectangle {
+                                x:273px; y:230px; width:175px; height:175px; background:#f9f9f9; border-width:2px; border-color:#838383; border-radius:8px;
+                                Image { x:0px; y:0px; width:parent.width; height:parent.height; source:root.title-new-image; image-fit:fill; }
+                                TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled:!root.busy; clicked => { root.choose-title-icon(); } }
+                            }
+                            OutputFolderRow { x:20px; y:546px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:638px; y:594px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            LegacyButton { x:20px; y:620px; width:392px; height:38px; text:"초기화"; enabled: !root.title-analyzing && !root.busy; clicked => { root.reset-current(); } }
+                            if !root.busy : BlueAction { x:418px; y:621px; width:391px; height:36px; text:"빌드하기"; action-enabled: root.input-items.length > 0 && !root.title-analyzing; clicked => { root.start-operation(1); } }
+                            if root.busy : RedAction { x:418px; y:621px; width:391px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+
+                            if root.input-items.length == 0 : Image { x:20px; y:98px; width:789px; height:307px; source:@image-url("legacy_assets/title_empty_panel.png"); }
+}
+                        if root.selected-tab == 2 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일"; }
+                            PathBox { x:20px; y:32px; width:717px; height:35px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x:743px; y:34px; width:66px; height:30px; text:"파일 찾기"; enabled:!root.extract-analyzing && !root.busy; clicked => { root.choose-input(); } }
+                            SectionLabel { x:20px; y:93px; width:789px; height:20px; text:"내부 구조 (파일 리스트)"; }
+                            PlaceholderTree { x:20px; y:119px; width:789px; height:385px; header:"파일명                                      크기            오프셋"; body: ""; rows:root.extract-rows; row-clicked(index) => { root.toggle-extract-row(index); } }
+                            QtCheckBox { x:20px; y:510px; width:789px; height:20px; text:"NCA 파일 내부까지 분해"; checked <=> root.unpack-nca; enabled:!root.extract-analyzing && !root.busy; }
+                            OutputFolderRow { x:20px; y:546px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:638px; y:594px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            LegacyButton { x:20px; y:620px; width:392px; height:38px; text:"초기화"; enabled:!root.extract-analyzing && !root.busy; clicked => { root.reset-current(); } }
+                            if !root.busy : BlueAction { x:418px; y:621px; width:391px; height:36px; text:"선택 항목 분해"; action-enabled: root.extract-rows.length > 0 && !root.extract-analyzing; clicked => { root.start-operation(2); } }
+                            if root.busy : RedAction { x:418px; y:621px; width:391px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+}
+                        if root.selected-tab == 3 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일"; }
+                            PathBox { x:20px; y:34px; width:715px; height:35px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x:743px; y:36px; width:66px; height:30px; text:"파일 찾기"; enabled:!root.analyze-analyzing && !root.busy; clicked => { root.choose-input(); } }
+                            Rectangle { x:20px; y:85px; width:789px; height:493px; background:#f9f9f9; border-width:1px; border-color:#c9c9c9;
+                                HorizontalLayout { x:0px; y:0px; width:parent.width; height:24px; spacing:0px;
+                                    QtTabButton { text:"기본 정보"; width:72px; selected:root.analyze-inner-tab == 0; clicked => { root.analyze-inner-tab = 0; } }
+                                    QtTabButton { text:"파일 목록"; width:72px; selected:root.analyze-inner-tab == 1; clicked => { root.analyze-inner-tab = 1; } }
+                                    QtTabButton { text:"Base"; width:52px; selected:root.analyze-inner-tab == 2; enabled:root.analyze-base-rows.length > 0; clicked => { root.analyze-inner-tab = 2; } }
+                                    QtTabButton { text:"Update"; width:66px; selected:root.analyze-inner-tab == 3; enabled:root.analyze-update-rows.length > 0; clicked => { root.analyze-inner-tab = 3; } }
+                                    QtTabButton { text:root.analyze-dlc-rows.length >= 2 ? "DLC (" + root.analyze-dlc-rows.length + ")" : "DLC"; width:root.analyze-dlc-rows.length >= 2 ? 68px : 48px; selected:root.analyze-inner-tab == 4; enabled:root.analyze-dlc-rows.length > 0; clicked => { root.analyze-inner-tab = 4; } }
+                                    Rectangle { horizontal-stretch:1; background:#f0f0f0; }
+                                }
+                                if root.analyze-inner-tab == 0 : Rectangle {
+                                    x:0px; y:24px; width:parent.width; height:469px; background:#f9f9f9;
+                                    Rectangle { x:18px; y:13px; width:175px; height:175px; background:#f9f9f9; border-width:2px; border-color:#f0f0f0; border-radius:8px;
+                                        if root.analyze-has-icon : Image { width:parent.width; height:parent.height; source:root.analyze-icon; image-fit:contain; }
+                                        if !root.analyze-has-icon : Text { text:"원본 로고\n(파일 대기)"; color:#777; horizontal-alignment:center; vertical-alignment:center; }
+                                    }
+                                    LegacyLineEdit { x:209px; y:13px; width:560px; height:22px; text:root.analyze-game-title; read-only:true; }
+                                    FieldLabel { x:209px; y:41px; width:72px; height:22px; text:"타이틀 ID"; } LegacyLineEdit { x:287px; y:41px; width:482px; height:22px; text:root.analyze-title-id; read-only:true; }
+                                    FieldLabel { x:209px; y:69px; width:72px; height:22px; text:"파일 타입"; } LegacyLineEdit { x:287px; y:69px; width:482px; height:22px; text:root.analyze-package-type; read-only:true; }
+                                    FieldLabel { x:209px; y:97px; width:72px; height:22px; text:"제작사"; } LegacyLineEdit { x:287px; y:97px; width:482px; height:22px; text:root.analyze-publisher; read-only:true; }
+                                    FieldLabel { x:209px; y:125px; width:72px; height:22px; text:"표시"; } LegacyLineEdit { x:287px; y:125px; width:482px; height:22px; text:root.analyze-display-version; read-only:true; }
+                                    FieldLabel { x:209px; y:153px; width:72px; height:22px; text:"연령 등급"; } LegacyLineEdit { x:287px; y:153px; width:482px; height:22px; text:root.analyze-age-rating; read-only:true; }
+                                    FieldLabel { x:209px; y:181px; width:72px; height:22px; text:"빌드 종류"; } LegacyLineEdit { x:287px; y:181px; width:482px; height:22px; text:root.analyze-build-kind; read-only:true; }
+                                    FieldLabel { x:209px; y:213px; width:72px; height:16px; text:"언어"; }
+                                    PathBox {
+                                        x:291px; y:213px; width:478px; height:192px;
+                                        model:root.analyze-languages;
+                                        current-item:root.analyze-languages.length > 0 ? 0 : -1;
+                                        row-selected(index) => {
+                                            if index >= 0 && index < root.analyze-language-titles.length {
+                                                root.analyze-game-title = root.analyze-language-titles[index];
+                                            }
+                                            if index >= 0 && index < root.analyze-language-publishers.length {
+                                                root.analyze-publisher = root.analyze-language-publishers[index];
+                                            }
+                                        }
+                                    }
+                                }
+                                if root.analyze-inner-tab == 1 : AnalyzeFileTree { x:18px; y:37px; width:751px; height:440px; rows:root.analyze-file-rows; }
+                                if root.analyze-inner-tab == 2 && root.analyze-base-rows.length == 1 : AnalyzeContentFields { x:2px; y:25px; width:783px; height:464px; content-data:root.analyze-base-rows[0]; }
+                                if root.analyze-inner-tab == 2 && root.analyze-base-rows.length >= 2 : AnalyzeContentTree { x:18px; y:37px; width:751px; height:440px; rows:root.analyze-base-rows; }
+                                if root.analyze-inner-tab == 3 && root.analyze-update-rows.length > 0 : AnalyzeContentFields { x:2px; y:25px; width:783px; height:464px; content-data:root.analyze-update-rows[0]; }
+                                if root.analyze-inner-tab == 4 && root.analyze-dlc-rows.length == 1 : AnalyzeContentFields { x:2px; y:25px; width:783px; height:464px; content-data:root.analyze-dlc-rows[0]; dlc-mode:true; }
+                                if root.analyze-inner-tab == 4 && root.analyze-dlc-rows.length >= 2 : AnalyzeContentTree { x:18px; y:37px; width:751px; height:440px; rows:root.analyze-dlc-rows; dlc-mode:true; }
+                            }
+                            QtCheckBox { x:638px; y:592px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            LegacyButton { x:20px; y:620px; width:391px; height:38px; text:"초기화"; enabled:!root.analyze-analyzing && !root.busy; clicked => { root.reset-current(); } }
+                            if !root.busy && !root.analyze-analyzing : BlueAction { x:419px; y:621px; width:390px; height:36px; text:"헤더 검사"; action-enabled:root.analyze-result-ready; clicked => { root.start-operation(3); } }
+                            if !root.busy && root.analyze-analyzing : RedAction { x:419px; y:621px; width:390px; height:36px; text:"중지"; action-enabled:!root.analyze-stop-requested; clicked => { root.stop-analyze(); } }
+                            if root.busy : RedAction { x:419px; y:621px; width:390px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            if !root.analyze-result-ready : Image { x:20px; y:85px; width:789px; height:493px; source:@image-url("legacy_assets/analyze_empty_panel.png"); }
+}
+                        if root.selected-tab == 4 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일 또는 폴더"; }
+                            PathBox { x:20px; y:32px; width:705px; height:464px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x: 731px; y: 32px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-input(); } }
+                            LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
+                            LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
+                            LegacyButton { x: 731px; y: 140px; width: 78px; height: 30px; text: "- 모두 삭제"; clicked => { root.clear-input(); } }
+                            FieldLabel { x:20px; y:512px; width:67px; height:20px; text:"변환할 포맷:"; }
+                            QtRadioButton { x:93px; y:512px; width:46px; height:20px; text:"NSP"; checked:root.target-format == "NSP"; clicked => { root.target-format = "NSP"; } } QtRadioButton { x:145px; y:512px; width:41px; height:20px; text:"XCI"; checked:root.target-format == "XCI"; clicked => { root.target-format = "XCI"; } }
+                            QtCheckBox { x:212px; y:512px; width:91px; height:20px; text:"출력 후 압축"; checked <=> root.compress-after; }
+                            OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:638px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"변환 시작"; action-enabled: true; clicked => { root.start-operation(4); } }
+                            if root.busy : RedAction { x:20px; y:622px; width:789px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            LegacyFourStack { x:731px; y:32px; width:78px; height:138px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } clear-all => { root.clear-input(); } }
+
+}
+                        if root.selected-tab == 5 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP/XCI 파일 또는 폴더"; }
+                            PathBox { x:20px; y:32px; width:705px; height:438px; model:root.input-items; current-item <=> root.input-current; }
+                            FieldLabel { x:20px; y:482px; width:36px; height:22px; text:"압축률"; }
+                            QtSlider { x:62px; y:482px; width:200px; height:22px; minimum:1; maximum:23; value <=> root.compression-level; }
+                            LegacyLevelValue { x:268px; y:482px; width:100px; height:22px; value:root.compression-level; }
+                            FieldLabel { x:20px; y:510px; width:36px; height:22px; text:"스레드"; }
+                            QtSlider { x:62px; y:510px; width:200px; height:22px; minimum:1; maximum:root.core-count + 1; value <=> root.thread-count; }
+                            LegacyThreadValue { x:268px; y:510px; width:90px; height:22px; value:root.thread-count; core-count:root.core-count; }
+                            OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:432px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            QtCheckBox { x:609px; y:596px; width:119px; height:20px; text:"압축 후 원본 삭제"; checked <=> root.remove-source; }
+                            QtCheckBox { x:734px; y:596px; width:75px; height:20px; text:"블록 모드"; checked <=> root.block-mode; }
+                            if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"압축 시작"; action-enabled:true; clicked => { root.start-operation(5); } }
+                            if root.busy : RedAction { x:20px; y:622px; width:789px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            LegacyFourStack { x:731px; y:32px; width:78px; height:138px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } clear-all => { root.clear-input(); } }
+
+                            level-hit := TouchArea {
+                                x:62px; y:482px; width:200px; height:22px;
+                                clicked => { root.compression-level = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * 22); }
+                                moved => { if (self.pressed) { root.compression-level = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * 22); } }
+                            }
+
+                            thread-hit := TouchArea {
+                                x:62px; y:510px; width:200px; height:22px;
+                                clicked => { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); }
+                                moved => { if (self.pressed) { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); } }
+                            }
+}
+                        if root.selected-tab == 6 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSZ/XCZ 파일 또는 폴더"; }
+                            PathBox { x:20px; y:32px; width:705px; height:462px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x: 731px; y: 32px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-input(); } }
+                            LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
+                            LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
+                            LegacyButton { x: 731px; y: 140px; width: 78px; height: 30px; text: "- 모두 삭제"; clicked => { root.clear-input(); } }
+                            FieldLabel { x:20px; y:510px; width:36px; height:22px; text:"스레드"; }
+                            QtSlider { x:62px; y:510px; width:200px; height:22px; minimum:1; maximum:root.core-count + 1; value <=> root.thread-count; }
+                            LegacyThreadValue { x:268px; y:510px; width:90px; height:22px; value:root.thread-count; core-count:root.core-count; }
+                            OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:513px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            QtCheckBox { x:690px; y:596px; width:119px; height:20px; text:"해제 후 원본 삭제"; checked <=> root.remove-source; }
+                            if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"압축 해제 시작"; action-enabled: true; clicked => { root.start-operation(6); } }
+                            if root.busy : RedAction { x:20px; y:622px; width:789px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            LegacyFourStack { x:731px; y:32px; width:78px; height:138px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } clear-all => { root.clear-input(); } }
+
+                            thread-hit-decompress := TouchArea {
+                                x:62px; y:510px; width:200px; height:22px;
+                                clicked => { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); }
+                                moved => { if (self.pressed) { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); } }
+                            }
+}
+                        if root.selected-tab == 7 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일 또는 폴더"; }
+                            PathBox { x:20px; y:32px; width:705px; height:426px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x: 731px; y: 32px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-input(); } }
+                            LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
+                            LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
+                            LegacyButton { x: 731px; y: 140px; width: 78px; height: 30px; text: "- 모두 삭제"; clicked => { root.clear-input(); } }
+                            FieldLabel { x:20px; y:474px; width:92px; height:22px; text:"압축 해제 스레드"; }
+                            QtSlider { x:118px; y:474px; width:200px; height:22px; minimum:1; maximum:root.core-count + 1; value <=> root.thread-count; }
+                            LegacyThreadValue { x:324px; y:474px; width:90px; height:22px; value:root.thread-count; core-count:root.core-count; }
+                            FieldLabel { x:20px; y:512px; width:55px; height:20px; text:"출력 포맷:"; }
+                            QtRadioButton { x:81px; y:512px; width:46px; height:20px; text:"NSP"; checked:root.target-format == "NSP"; clicked => { root.target-format = "NSP"; } } QtRadioButton { x:133px; y:512px; width:41px; height:20px; text:"XCI"; checked:root.target-format == "XCI"; clicked => { root.target-format = "XCI"; } }
+                            QtCheckBox { x:200px; y:512px; width:91px; height:20px; text:"출력 후 압축"; checked <=> root.compress-after; }
+                            OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:521px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            QtCheckBox { x:698px; y:596px; width:111px; height:20px; text:"타이틀 가져오기"; checked <=> root.use-game-title; }
+                            if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"병합 시작"; action-enabled: true; clicked => { root.start-operation(7); } }
+                            if root.busy : RedAction { x:20px; y:622px; width:789px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            LegacyFourStack { x:731px; y:32px; width:78px; height:138px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } clear-all => { root.clear-input(); } }
+
+                            thread-hit-merge := TouchArea {
+                                x:118px; y:474px; width:200px; height:22px;
+                                clicked => { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); }
+                                moved => { if (self.pressed) { root.thread-count = Math.round(1 + max(0px, min(186px, self.mouse-x - 7px)) / 186px * root.core-count); } }
+                            }
+}
+                        if root.selected-tab == 8 : Rectangle {
+                            width:parent.width; height:parent.height; background:#f9f9f9;
+                            FieldLabel { x:20px; y:10px; width:789px; height:16px; text:"NSP / XCI / NSZ / XCZ 파일 또는 폴더"; }
+                            PathBox { x:20px; y:32px; width:705px; height:500px; model:root.input-items; current-item <=> root.input-current; }
+                            LegacyButton { x: 731px; y: 32px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-input(); } }
+                            LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
+                            LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
+                            LegacyButton { x: 731px; y: 140px; width: 78px; height: 30px; text: "- 모두 삭제"; clicked => { root.clear-input(); } }
+                            OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
+                            QtCheckBox { x:521px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
+                            QtCheckBox { x:698px; y:596px; width:111px; height:20px; text:"타이틀 가져오기"; checked <=> root.use-game-title; }
+                            if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"분할 시작"; action-enabled: true; clicked => { root.start-operation(8); } }
+                            if root.busy : RedAction { x:20px; y:622px; width:789px; height:36px; text:"중지"; action-enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                            LegacyFourStack { x:731px; y:32px; width:78px; height:138px; add-file => { root.choose-input(); } add-folder => { root.choose-input-folder(); } remove-selected => { root.remove-input(root.input-current); } clear-all => { root.clear-input(); } }
+}
+                    }
+
+                    // Input overlays live above the page so bitmap skins never intercept clicks.
+                    convert-options-hit := TouchArea {
+                        x:95px; y:537px; width:210px; height:20px;
+                        enabled: root.selected-tab == 4;
+                        clicked => {
+                            if (self.mouse-x < 46px) { root.target-format = "NSP"; }
+                            else if (self.mouse-x >= 52px && self.mouse-x < 93px) { root.target-format = "XCI"; }
+                            else if (self.mouse-x >= 119px) { root.compress-after = !root.compress-after; }
+                        }
+                    }
+                    compress-options-hit := TouchArea {
+                        x:611px; y:621px; width:200px; height:20px;
+                        enabled: root.selected-tab == 5;
+                        clicked => {
+                            if (self.mouse-x < 119px) { root.remove-source = !root.remove-source; }
+                            else if (self.mouse-x >= 125px) { root.block-mode = !root.block-mode; }
+                        }
+                    }
+                    if root.selected-tab == 0 : TouchArea { x:515px; y:619px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 0 : TouchArea { x:692px; y:619px; width:119px; height:20px; clicked => { root.save-log = !root.save-log; } }
+                    if root.selected-tab == 1 : TouchArea { x:640px; y:619px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    extract-nca-hit := TouchArea { x:22px; y:535px; width:789px; height:20px; enabled:root.selected-tab == 2 && !root.extract-analyzing && !root.busy; clicked => { root.unpack-nca = !root.unpack-nca; } }
+                    if root.selected-tab == 2 : TouchArea { x:640px; y:619px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 3 : TouchArea { x:640px; y:617px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 4 : TouchArea { x:640px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 5 : TouchArea { x:434px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 6 : TouchArea { x:515px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    if root.selected-tab == 6 : TouchArea { x:692px; y:621px; width:119px; height:20px; clicked => { root.remove-source = !root.remove-source; } }
+                    merge-compress-hit := TouchArea { x:202px; y:537px; width:91px; height:20px; enabled:root.selected-tab == 7; clicked => { root.compress-after = !root.compress-after; } }
+                    if root.selected-tab == 7 : TouchArea { x:523px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    merge-title-hit := TouchArea { x:700px; y:621px; width:111px; height:20px; enabled:root.selected-tab == 7; clicked => { root.use-game-title = !root.use-game-title; } }
+                    if root.selected-tab == 8 : TouchArea { x:523px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
+                    split-title-hit := TouchArea { x:700px; y:621px; width:111px; height:20px; enabled:root.selected-tab == 8; clicked => { root.use-game-title = !root.use-game-title; } }
+
+                    if extract-nca-hit.has-hover : LegacyTooltip {
+                        x:22px; y:486px; width:315px; height:42px;
+                        text:"데이터 분해를 위해 암호화 키(prod.keys)가 필요합니다.";
+                    }
+                    if convert-options-hit.has-hover && convert-options-hit.mouse-x >= 119px : LegacyTooltip {
+                        x:212px; y:443px; width:430px; height:82px;
+                        text:"체크 시 결과를 압축 포맷으로 출력합니다.\n• NSP 선택 + 체크 → NSZ\n• XCI 선택 + 체크 → XCZ\n체크 해제 시 입력이 NSZ/XCZ 여도 NSP/XCI 로만 출력됩니다.";
+                    }
+                    if compress-options-hit.has-hover && compress-options-hit.mouse-x >= 125px : LegacyTooltip {
+                        x:430px; y:558px; width:381px; height:56px;
+                        text:"블록 모드: 1MB 단위 독립 압축 (에뮬레이터 직접 마운트 호환)\n블록리스 모드: 파일 크기가 더 작음 (일반 설치 권장)";
+                    }
+                    if merge-compress-hit.has-hover : LegacyTooltip {
+                        x:202px; y:443px; width:430px; height:82px;
+                        text:"체크 시 결과를 압축 포맷으로 출력합니다.\n• NSP 선택 + 체크 → NSZ\n• XCI 선택 + 체크 → XCZ\n체크 해제 시 입력이 NSZ/XCZ 여도 NSP/XCI 로만 출력됩니다.";
+                    }
+                    if merge-title-hit.has-hover : LegacyTooltip {
+                        x:390px; y:541px; width:421px; height:73px;
+                        text:"체크 시 게임 내부 타이틀을 한국어 → 영어 → 일본어 순으로 가져와 출력 파일명에 사용합니다.\n체크 해제 시 원본 파일명을 사용합니다.";
+                    }
+                    if split-title-hit.has-hover : LegacyTooltip {
+                        x:390px; y:541px; width:421px; height:73px;
+                        text:"체크 시 게임 내부 타이틀을 한국어 → 영어 → 일본어 순으로 가져와 출력 파일명에 사용합니다.\n체크 해제 시 원본 파일명을 사용합니다.";
+                    }
+                    if root.patch-analyzing && root.selected-tab == 0 : TouchArea { x:0px; y:24px; width:835px; height:668px; }
+                    if root.busy : TouchArea { x:0px; y:24px; width:835px; height:668px; }
+                    if root.busy && root.selected-tab <= 2 : TouchArea { x:418px; y:645px; width:391px; height:36px; enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                    if root.busy && root.selected-tab == 3 : TouchArea { x:419px; y:645px; width:390px; height:36px; enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+                    if root.busy && root.selected-tab >= 4 : TouchArea { x:20px; y:646px; width:789px; height:36px; enabled:!root.stop-requested; clicked => { root.stop-operation(); } }
+}
+            }
+
+            Rectangle {
+                width: 540px;
+                background: #f0f0f0;
+                Rectangle {
+                    width: parent.width; height: parent.height;
+                    background: #f9f9f9;
+                    border-width: 1px; border-color: #e5e5e5;
+                    Image { x:0px; y:0px; width:540px; height:25px; source:@image-url("legacy_assets/log_topstrip_full.png"); }
+                    QtLogView { x: 2px; y: 25px; width: 534px; height: 668px; rows: root.log-rows; }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 21px; background: #f0f0f0; border-width: 0px;
+            HorizontalLayout {
+                padding-left: 12px; padding-right: 20px; spacing: 6px;
+                Text { text: root.status-text; color: #000000; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                StatusProgress { width: 180px; progress: root.progress; }
+                ResourceLabel { text: root.resource-text; char-count: root.resource-char-count; }
+            }
+        }
+    }
+
+    if root.menu-open != 0 : TouchArea {
+        x: 0px; y: 22px; width: parent.width; height: parent.height - 22px;
+        clicked => { root.menu-open = 0; }
+    }
+    if root.menu-open == 1 : Image {
+        x: 0px; y: 22px; width: 98px; height: 30px; source:file-exit-menu.has-hover ? @image-url("legacy_assets/menu_file_hover.png") : @image-url("legacy_assets/menu_file.png");
+        file-exit-menu := TouchArea { x:3px; y:3px; width:91px; height:24px; clicked => { root.menu-open = 0; root.exit-app(); } }
+    }
+    if root.menu-open == 2 : Image {
+        x: 40px; y: 22px; width: 150px; height: 63px;
+        source:help-update-menu.has-hover ? @image-url("legacy_assets/menu_help_update_hover.png") : (help-info-menu.has-hover ? @image-url("legacy_assets/menu_help_info_hover.png") : @image-url("legacy_assets/menu_help.png"));
+        help-update-menu := TouchArea { x:3px; y:3px; width:143px; height:24px; clicked => { root.menu-open = 0; root.open-updates(); } }
+        help-info-menu := TouchArea { x:3px; y:36px; width:143px; height:24px; clicked => { root.menu-open = 0; root.show-about(); } }
+    }
+    if root.menu-open == 2 : Rectangle {
+        x: 40px; y: 85px; width: 150px; height: 29px;
+        background: recovery-menu-touch.has-hover ? #cce8ff : #ffffff;
+        border-width: 1px; border-color: #b0b0b0;
+        Text {
+            x: 10px; width: 136px; height: parent.height;
+            text: "복구 이력 확인";
+            color: #202124; font-size: 12px; vertical-alignment: center;
+        }
+        recovery-menu-touch := TouchArea {
+            width: parent.width; height: parent.height;
+            clicked => { root.menu-open = 0; root.show-recovery(); }
+        }
+    }
+
+    // All recovery controls are read-only: no restore, delete or rename.
+    if root.recovery-open : Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        background: #00000055;
+        TouchArea { width: parent.width; height: parent.height; }
+    }
+    if root.recovery-open : Rectangle {
+        x: 180px; y: 72px; width: 1040px; height: 616px;
+        background: #ffffff;
+        border-width: 1px; border-color: #7c8795;
+        Rectangle {
+            x: 1px; y: 1px; width: parent.width - 2px; height: 45px;
+            background: #f0f2f5;
+            Text {
+                x: 18px; width: 590px; height: parent.height;
+                text: "Program 복구 이력 (읽기 전용)";
+                font-size: 16px; font-weight: 700; color: #202124;
+                vertical-alignment: center;
+            }
+            LegacyButton {
+                x: 948px; y: 6px; width: 74px; height: 30px;
+                text: "닫기";
+                clicked => { root.recovery-open = false; }
+            }
+        }
+        Text {
+            x: 18px; y: 52px; width: 1000px; height: 30px;
+            text: "원본/백업/임시 폴더를 직접 대조하기 전에는 이동·삭제·자동 복원을 수행하지 마세요.";
+            color: #9b2118; font-size: 12px; font-weight: 600;
+            vertical-alignment: center;
+        }
+        Text {
+            x: 18px; y: 91px; width: 96px; height: 25px;
+            text: "검사 위치:"; font-size: 12px;
+            vertical-alignment: center; color: #202124;
+        }
+        Rectangle {
+            x: 112px; y: 90px; width: 678px; height: 29px;
+            border-width: 1px; border-color: #c5cbd2;
+            background: #f8f9fb;
+            Text {
+                x: 8px; width: parent.width - 16px; height: parent.height;
+                text: root.recovery-root; font-size: 12px; color: #202124;
+                vertical-alignment: center; overflow: elide;
+            }
+        }
+        LegacyButton {
+            x: 797px; y: 90px; width: 102px; height: 30px;
+            text: "폴더 선택";
+            enabled: !root.recovery-loading;
+            clicked => { root.choose-recovery-root(); }
+        }
+        LegacyButton {
+            x: 905px; y: 90px; width: 117px; height: 30px;
+            text: root.recovery-loading ? "검사 중..." : "새로고침";
+            enabled: !root.recovery-loading;
+            clicked => { root.refresh-recovery(); }
+        }
+        Text {
+            x: 18px; y: 130px; width: 975px; height: 28px;
+            text: root.recovery-loading ? "복구 저널을 안전하게 읽는 중입니다." : "발견된 복구 기록: " + root.recovery-count + "개  |  자동 복원/정리: 사용 안 함";
+            font-size: 12px; color: #202124; vertical-alignment: center;
+        }
+        Rectangle {
+            x: 18px; y: 162px; width: 1004px; height: 381px;
+            background: #ffffff; border-width: 1px; border-color: #b5bdc7;
+            ListView {
+                x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                for line in root.recovery-lines : Rectangle {
+                    // Long recovery paths must be scrollable instead of being
+                    // silently cut off by a fixed-height, two-line row.
+                    width: parent.width;
+                    height: max(49px, min(180px, recovery-row-text.preferred-height + 12px));
+                    background: #f8f9fb;
+                    recovery-row-text := Text {
+                        x: 10px; y: 6px; width: parent.width - 22px; height: parent.height - 12px;
+                        text: line; font-size: 12px; color: #202124;
+                        wrap: word-wrap; vertical-alignment: top;
+                    }
+                }
+            }
+        }
+        Text {
+            x: 18px; y: 553px; width: 1004px; height: 54px;
+            text: "안전 주의: 이력은 실제 파일 변경의 최종 상태를 증명하지 않습니다.\n손상된 저널·정션·링크는 자동 처리하지 않으며 사용자 파일을 수정하지 않습니다.";
+            font-size: 12px; color: #9b2118; wrap: word-wrap;
+            vertical-alignment: center;
+        }
+    }
+
+}
