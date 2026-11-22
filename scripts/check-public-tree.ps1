@@ -9,7 +9,9 @@ $required=@(
     'Cargo.toml','Cargo.lock','rust-toolchain.toml','LICENSE','README.md',
     'THIRD_PARTY_NOTICES.md','src/updater.rs','src/update_ui.rs',
     '.github/workflows/windows-build.yml','scripts/package.ps1',
-    'scripts/apply-update.ps1','scripts/test-auto-update.ps1'
+    'scripts/apply-update.ps1','scripts/test-auto-update.ps1',
+    'scripts/check-third-party-attribution.ps1',
+    'licenses/Slint-Royalty-free-2.0.md'
 )
 foreach($item in $required){
     if(-not(Test-Path -LiteralPath (Join-Path $root $item) -PathType Leaf)){
@@ -55,4 +57,6 @@ if($errors.Count -gt 0){
 }
 & (Join-Path $PSScriptRoot 'verify_embedded_inputs.ps1')
 if($LASTEXITCODE -ne 0 -or -not $?){throw 'Reviewed binary input SHA-256 audit failed'}
+& (Join-Path $PSScriptRoot 'check-third-party-attribution.ps1')
+if($LASTEXITCODE -ne 0 -or -not $?){throw 'Third-party attribution audit failed'}
 Write-Output "NSRP_PUBLIC_SOURCE_PATHS_VERIFIED files=$($tracked.Count) approved_binaries=$($publicBinaries.Count) secrets=0"

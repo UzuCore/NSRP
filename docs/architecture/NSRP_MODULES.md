@@ -42,6 +42,12 @@ verifies exact helper binaries before building.
 independently hashes every ZIP entry; `test-auto-update.ps1` exercises the
 real installer on a disposable directory and checks rollback and data safety.
 
+`scripts/check-third-party-attribution.ps1` enforces Slint Royalty-free 2.0
+desktop attribution (`AboutSlint` in Help > About) and source/ZIP license
+notices. The exact pinned upstream Slint license is included alongside other
+external-tool licenses. This is distinct from proving exact binary build
+provenance for older hactool/hactoolnet/hacbuild tools.
+
 `scripts/publish_release.ps1` is a separate **local workstation** publisher
 that copies a built source release to the parent NSRP workspace root and dist.
 The GitHub Actions source `build.bat` does not invoke that local publisher.

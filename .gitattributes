@@ -3,6 +3,7 @@
 *.lock text eol=lf
 *.slint text eol=lf
 *.ps1 text eol=crlf
+licenses/Slint-Royalty-free-2.0.md text eol=lf
 
 # Fixed-byte embedded inputs must survive Windows autocrlf on a clean clone.
 # Their SHA-256 manifest is part of the build contract.

@@ -310,3 +310,80 @@ fn stage62_native_repack_fails_closed_on_unsupported_or_existing_output() -> Res
     assert!(!cancelled_out.exists());
     Ok(())
 }
+
+#[test]
+fn stage63_romfs_expansion_preserves_relocated_unmodified_aes_ctr_exefs() -> Result<()> {
+    // An unchanged encrypted section can move when the preceding RomFS
+    // grows. CTR depends on the absolute NCA offset, so the ciphertext
+    // must be re-encrypted when the unmodified ExeFS is relocated.
+    let tmp = tempfile::tempdir()?;
+    let romfs = tmp.path().join("original_romfs");
+    let exefs = tmp.path().join("original_exefs");
+    fs::create_dir(&romfs)?;
+    fs::create_dir(&exefs)?;
+    fs::write(romfs.join("small.dat"), b"original tiny RomFS")?;
+    fs::write(exefs.join("main"), vec![0x39; 0x1003])?;
+    fs::write(exefs.join("main.npdm"), b"unchanged program metadata")?;
+    let source = tmp.path().join("program-original.nca");
+    let keys = keys();
+    synthetic_nca(
+        &source,
+        &keys,
+        0,
+        &[
+            fake_romfs_section(&romfs, tmp.path())?,
+            fake_exefs_section(&exefs, tmp.path())?,
+        ],
+    )?;
+    let original = fs::read(&source)?;
+    let old_info = decrypt_header(&original[..NCA_XTS_HEADER_SIZE], &keys)?;
+    assert_eq!(old_info.sections.len(), 2);
+    let old_exefs = &old_info.sections[1];
+    let mut old_plain = original
+        [usize::try_from(old_exefs.offset)?..usize::try_from(old_exefs.offset + old_exefs.size)?]
+        .to_vec();
+    nca_ctr_xcrypt_range(
+        &mut old_plain,
+        &derive_section_key(&old_info, &keys)?,
+        &old_exefs.counter,
+        old_exefs.offset,
+    )?;
+
+    let modified_romfs = tmp.path().join("modified_romfs");
+    fs::create_dir(&modified_romfs)?;
+    fs::write(
+        modified_romfs.join("small.dat"),
+        vec![0x72; 1024 * 1024 + 19],
+    )?;
+    fs::write(modified_romfs.join("added.dat"), b"second logical asset")?;
+    let rebuilt = tmp.path().join("rebuilt.nca");
+    let stats = repack_nca(
+        &source,
+        Some(&modified_romfs),
+        None,
+        &rebuilt,
+        &keys,
+        &AtomicBool::new(false),
+    )?;
+    assert_eq!(stats.romfs_files, 2);
+    assert_eq!(stats.exefs_files, 0);
+    verify_rebuilt_romfs(&rebuilt, &keys, &modified_romfs)?;
+
+    let output = fs::read(&rebuilt)?;
+    let new_info = decrypt_header(&output[..NCA_XTS_HEADER_SIZE], &keys)?;
+    let new_exefs = &new_info.sections[1];
+    assert!(new_exefs.offset > old_exefs.offset);
+    assert_eq!(new_exefs.size, old_exefs.size);
+    let mut new_plain = output
+        [usize::try_from(new_exefs.offset)?..usize::try_from(new_exefs.offset + new_exefs.size)?]
+        .to_vec();
+    nca_ctr_xcrypt_range(
+        &mut new_plain,
+        &derive_section_key(&new_info, &keys)?,
+        &new_exefs.counter,
+        new_exefs.offset,
+    )?;
+    assert_eq!(new_plain, old_plain, "relocation must preserve ExeFS bytes");
+    assert_eq!(fs::read(&source)?, original, "input must stay read-only");
+    Ok(())
+}

@@ -36,6 +36,10 @@ jobs:
         shell: powershell
         run: .\scripts\check-public-tree.ps1
 
+      - name: Require the Slint About badge and retained license notices
+        shell: powershell
+        run: .\scripts\check-third-party-attribution.ps1
+
       - name: Check source formatting
         shell: cmd
         run: cargo fmt --all --check
@@ -51,6 +55,10 @@ jobs:
       - name: Run isolated Slint window test
         shell: cmd
         run: cargo test --locked --bin nsrp stage60_drop_output_state_and_tab_epoch_are_preserved -- --ignored --test-threads=1
+
+      - name: Verify Help About displays Slint attribution dialog
+        shell: cmd
+        run: cargo test --locked --bin nsrp stage63_help_about_opens_slint_attribution_dialog -- --ignored --test-threads=1
 
       - name: Check Rust lints
         shell: cmd

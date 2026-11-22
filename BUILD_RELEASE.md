@@ -44,6 +44,11 @@ The SHA verifier checks exact binary blobs before compiling:
 
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\verify_embedded_inputs.ps1
 
+The third-party gate verifies the exact pinned Slint 1.17.1 royalty-free
+license text and genuine top-menu Help > About `AboutSlint` UI wiring:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check-third-party-attribution.ps1
+
 The ZIP is built in `build/package`, checked against a hardcoded allowlist
 and streamed SHA-256 verification, then published to this source tree's
 ignored `dist` directory. **No user key, config, ROM, screenshots, test
@@ -57,7 +62,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --lib
 cargo test --locked --bin nsrp
 cargo test --locked --bin nsrp stage60_drop_output_state_and_tab_epoch_are_preserved -- --ignored --test-threads=1
+cargo test --locked --bin nsrp stage63_help_about_opens_slint_attribution_dialog -- --ignored --test-threads=1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\verify-package.ps1 -PackageZip dist\nsrp-win64.zip -StagingDir build\package
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check-third-party-attribution.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\test-auto-update.ps1 -RunDelayedFailure
 ```
 
@@ -105,8 +112,10 @@ replacement failure with SHA-protected disposable user-data sentinels.
   QA/handoff files; review the Git staged path allowlist before pushing.
 - Native Program/Control repacking no longer includes or invokes `hacpack.exe`.
   The three remaining external helper tools have separate attribution and
-  license notices: see `THIRD_PARTY_NOTICES.md`. Slint's own multi-license
-  terms require a separate review. Unsupported NCA structures
+  license notices: see `THIRD_PARTY_NOTICES.md`. Slint's desktop
+  royalty-free license is explicitly elected and its `AboutSlint` badge is
+  implemented in the Help menu. Verify those conditions before Release.
+  Unsupported NCA structures
   fail safely instead of invoking an unverified fallback.
 - **Do not push old local `master` or archived Stage61 publication branches:**
   they contain a historic GPL binary. The public `main` must descend solely

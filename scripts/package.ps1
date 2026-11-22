@@ -35,6 +35,7 @@ $sources=@(
     @{path=(Join-Path $root 'THIRD_PARTY_NOTICES.md');name='THIRD_PARTY_NOTICES.md'},
     @{path=(Join-Path $root 'licenses\hacbuild-MIT.txt');name='licenses\hacbuild-MIT.txt'},
     @{path=(Join-Path $root 'licenses\hactool-ISC.txt');name='licenses\hactool-ISC.txt'},
+    @{path=(Join-Path $root 'licenses\Slint-Royalty-free-2.0.md');name='licenses\Slint-Royalty-free-2.0.md'},
     @{path=(Join-Path $root 'bin\LibHac_LICENSE.txt');name='licenses\LibHac-MIT.txt'}
 )
 foreach($item in $sources){

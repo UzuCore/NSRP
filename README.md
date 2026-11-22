@@ -41,6 +41,13 @@ committed. Three legacy read/extract/XCI-layout tools remain as compatibility
 inputs; Program and Control NCA repacking no longer executes a GPL packer.
 See `THIRD_PARTY_NOTICES.md` for attribution and independent-license review.
 
+**GUI attribution:** NSRP chooses Slint 1.17.1's Royalty-free Desktop License
+2.0 and shows the unmodified `AboutSlint` attribution widget from the top
+menu's **Help > About** dialog. The corresponding license is included as
+`licenses/Slint-Royalty-free-2.0.md`; `scripts/check-third-party-attribution.ps1`
+checks both the widget wiring and exact license SHA as a build precondition.
+This application does not distribute the Slint framework independently.
+
 ## Build from the source root
 
 On Windows with Rust/Cargo and PowerShell installed:
@@ -61,7 +68,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --lib
 cargo test --locked --bin nsrp
 cargo test --locked --bin nsrp stage60_drop_output_state_and_tab_epoch_are_preserved -- --ignored --test-threads=1
+cargo test --locked --bin nsrp stage63_help_about_opens_slint_attribution_dialog -- --ignored --test-threads=1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\test-auto-update.ps1 -RunDelayedFailure
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check-third-party-attribution.ps1
 ```
 
 Slint/Winit supports one event-loop instance per test process. The special

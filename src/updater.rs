@@ -267,6 +267,7 @@ fn allowed_archive_file(name: &str) -> bool {
             | "licenses/hacbuild-MIT.txt"
             | "licenses/hactool-ISC.txt"
             | "licenses/LibHac-MIT.txt"
+            | "licenses/Slint-Royalty-free-2.0.md"
     )
 }
 

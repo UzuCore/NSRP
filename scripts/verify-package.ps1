@@ -12,7 +12,7 @@ $archive=(Resolve-Path -LiteralPath $PackageZip -ErrorAction Stop).Path
 $allowed=@(
     'nsrp.exe','nsrp-manifest.json','LICENSE','THIRD_PARTY_NOTICES.md',
     'licenses/hacbuild-MIT.txt','licenses/hactool-ISC.txt',
-    'licenses/LibHac-MIT.txt'
+    'licenses/LibHac-MIT.txt','licenses/Slint-Royalty-free-2.0.md'
 )
 $expected=[Collections.Generic.Dictionary[string,string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach($entry in Get-ChildItem -LiteralPath $staging -File -Recurse){

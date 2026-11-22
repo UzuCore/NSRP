@@ -12,6 +12,10 @@ echo [NSRP] Verifying checked-in embedded inputs...
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0scripts\verify_embedded_inputs.ps1"
 if errorlevel 1 exit /b %errorlevel%
 
+echo [NSRP] Verifying third-party license attribution...
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0scripts\check-third-party-attribution.ps1"
+if errorlevel 1 exit /b %errorlevel%
+
 echo [NSRP] Building the locked Windows release...
 if /I "%NSRP_BUILD_OFFLINE%"=="1" (
     cargo build --release --locked --offline

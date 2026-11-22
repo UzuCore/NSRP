@@ -912,20 +912,27 @@ fn wire_window_actions(
         });
     }
 
-    let about_workspace = paths.workspace_root.clone();
-    window.on_show_about(move || {
-        let _ = rfd::MessageDialog::new()
-            .set_title("NSRP 정보")
-            .set_description(format!(
-                "NSRP v{APP_VERSION}\n빌드 커밋: {}\n\n작업 디렉터리: {}",
-                updater::build_commit(),
-                about_workspace.display()
-            ))
-            .set_buttons(rfd::MessageButtons::Ok)
-            .show();
-    });
+    wire_about_dialog(window, &paths.workspace_root);
 
     update_ui::wire_updates(window, paths, busy, config, states);
+}
+
+fn wire_about_dialog(window: &AppWindow, workspace_root: &Path) {
+    let about_workspace = workspace_root.to_path_buf();
+    let about_window = window.as_weak();
+    window.on_show_about(move || {
+        if let Some(ui) = about_window.upgrade() {
+            ui.set_about_details(
+                format!(
+                    "NSRP v{APP_VERSION}\n빌드 커밋: {}\n\n작업 디렉터리: {}",
+                    updater::build_commit(),
+                    about_workspace.display()
+                )
+                .into(),
+            );
+            ui.set_about_open(true);
+        }
+    });
 }
 
 fn wire_patch_analyzer(window: &AppWindow, paths: AppPaths) {
@@ -2554,6 +2561,33 @@ fn tab_name(tab: i32) -> &'static str {
         7 => "병합",
         8 => "분할",
         _ => "작업",
+    }
+}
+
+#[cfg(all(test, windows))]
+mod about_ui_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
+    fn stage63_help_about_opens_slint_attribution_dialog() -> Result<()> {
+        let ui = AppWindow::new()?;
+        let workspace = PathBuf::from("C:\\NSRP_Stage63_ReadOnly_UI_Test");
+        wire_about_dialog(&ui, &workspace);
+
+        assert!(!ui.get_about_open(), "About dialog must start closed");
+        ui.invoke_show_about();
+        assert!(
+            ui.get_about_open(),
+            "Help > About callback must open dialog"
+        );
+        let details = ui.get_about_details().to_string();
+        assert!(details.contains(&format!("NSRP v{APP_VERSION}")));
+        assert!(details.contains(&workspace.to_string_lossy().to_string()));
+
+        ui.set_about_open(false);
+        assert!(!ui.get_about_open(), "About dialog must close cleanly");
+        Ok(())
     }
 }
 
