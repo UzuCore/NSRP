@@ -268,6 +268,7 @@ fn allowed_archive_file(name: &str) -> bool {
             | "licenses/hactool-ISC.txt"
             | "licenses/LibHac-MIT.txt"
             | "licenses/Slint-Royalty-free-2.0.md"
+            | "licenses/mbedtls-Apache-2.0.txt"
     )
 }
 
@@ -515,6 +516,7 @@ mod tests {
 
     #[test]
     fn untrusted_files_cannot_enter_the_update_zip() {
+        assert!(allowed_archive_file("licenses/mbedtls-Apache-2.0.txt"));
         for bad in [
             "prod.keys",
             "title.keys",

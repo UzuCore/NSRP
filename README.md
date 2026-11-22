@@ -40,6 +40,8 @@ Those files are not required for a public **source build**, and must never be
 committed. Three legacy read/extract/XCI-layout tools remain as compatibility
 inputs; Program and Control NCA repacking no longer executes a GPL packer.
 See `THIRD_PARTY_NOTICES.md` for attribution and independent-license review.
+The bundled hactool cryptography has an additional Apache-2.0 notice for
+Mbed TLS, retained verbatim in `licenses/mbedtls-Apache-2.0.txt`.
 
 **GUI attribution:** NSRP chooses Slint 1.17.1's Royalty-free Desktop License
 2.0 and shows the unmodified `AboutSlint` attribution widget from the top

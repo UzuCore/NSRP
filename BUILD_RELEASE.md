@@ -112,7 +112,8 @@ replacement failure with SHA-protected disposable user-data sentinels.
   QA/handoff files; review the Git staged path allowlist before pushing.
 - Native Program/Control repacking no longer includes or invokes `hacpack.exe`.
   The three remaining external helper tools have separate attribution and
-  license notices: see `THIRD_PARTY_NOTICES.md`. Slint's desktop
+  license notices (including hactool's Mbed TLS Apache-2.0): see
+  `THIRD_PARTY_NOTICES.md`. Slint's desktop
   royalty-free license is explicitly elected and its `AboutSlint` badge is
   implemented in the Help menu. Verify those conditions before Release.
   Unsupported NCA structures

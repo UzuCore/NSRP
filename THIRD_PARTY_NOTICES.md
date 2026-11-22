@@ -8,6 +8,7 @@ tools are **not** original Rust implementations by NSRP's authors.
 | Component | Source reference | License notice |
 | --- | --- | --- |
 | hactool | <https://github.com/SciresM/hactool> | `licenses/hactool-ISC.txt` (ISC) |
+| Mbed TLS (bundled cryptography used by hactool) | <https://github.com/SciresM/hactool/tree/master/mbedtls> | `licenses/mbedtls-Apache-2.0.txt` (Apache-2.0; selected over GPL) |
 | hactoolnet / LibHac | <https://gitlab.com/ryujinx-classic/LibHac> (recorded source commit `fefa38ff`) | `licenses/LibHac-MIT.txt` in ZIP (`bin/LibHac_LICENSE.txt` in source, MIT) |
 | hacbuild | <https://github.com/LucaCorigliano/hacbuild> (archived upstream) | `licenses/hacbuild-MIT.txt` (MIT, Copyright (c) 2018 Luca Corigliano) |
 | Slint 1.17.1 (UI framework) | <https://github.com/slint-ui/slint> | `licenses/Slint-Royalty-free-2.0.md` (Slint Royalty-free Desktop, Mobile, and Web Applications License, v2.0) |
@@ -32,6 +33,10 @@ their copyright/license notices are included. The exact corresponding
 upstream release/build artifacts for the three existing binaries have **not**
 all been independently matched by checksum or fully reproduced from source.
 Do not describe this as a comprehensive independent supply-chain audit.
+The `hactool` source tree also carries Mbed TLS cryptography, whose upstream
+license file elects Apache-2.0; the original Apache-2.0 license is included
+separately for its bundled implementation. This does not assert an exact
+source-to-binary provenance match for the historical hactool executable.
 
 **Slint license election:** Slint 1.17.1 declares
 `GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR

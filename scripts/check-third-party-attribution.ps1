@@ -8,11 +8,12 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $slint = Join-Path $root 'licenses\Slint-Royalty-free-2.0.md'
+$mbedtls = Join-Path $root 'licenses\mbedtls-Apache-2.0.txt'
 $ui = Join-Path $root 'ui\main.slint'
 $rust = Join-Path $root 'src\main.rs'
 $notice = Join-Path $root 'THIRD_PARTY_NOTICES.md'
 
-foreach ($path in @($slint, $ui, $rust, $notice,
+foreach ($path in @($slint, $mbedtls, $ui, $rust, $notice,
     (Join-Path $root 'licenses\hactool-ISC.txt'),
     (Join-Path $root 'licenses\hacbuild-MIT.txt'),
     (Join-Path $root 'bin\LibHac_LICENSE.txt'))) {
@@ -26,6 +27,11 @@ $expected = '5167F5056E850419106AB6265EFBDCA7CBA4D99C849D1445CA0BBF6A1E2315FE'
 $actual = (Get-FileHash -LiteralPath $slint -Algorithm SHA256).Hash
 if ($actual -cne $expected) {
     throw "Slint Royalty-free v2 license changed: $actual"
+}
+$expectedMbedTLS = 'CFC7749B96F63BD31C3C42B5C471BF756814053E847C10F3EB003417BC523D30'
+$actualMbedTLS = (Get-FileHash -LiteralPath $mbedtls -Algorithm SHA256).Hash
+if ($actualMbedTLS -cne $expectedMbedTLS) {
+    throw "Mbed TLS Apache-2.0 license changed: $actualMbedTLS"
 }
 $licenseText = [IO.File]::ReadAllText($slint)
 if (-not $licenseText.Contains('AboutSlint') -or
@@ -49,7 +55,7 @@ if (-not $uiText.Contains('import { AboutSlint,') -or
 $noticeText = [IO.File]::ReadAllText($notice)
 foreach ($marker in @('Slint-Royalty-free-2.0.md',
     'licenses/hactool-ISC.txt','licenses/hacbuild-MIT.txt',
-    'licenses/LibHac-MIT.txt')) {
+    'licenses/LibHac-MIT.txt','licenses/mbedtls-Apache-2.0.txt')) {
     if (-not $noticeText.Contains($marker)) {
         throw "Missing third-party notice: $marker"
     }
@@ -57,3 +63,4 @@ foreach ($marker in @('Slint-Royalty-free-2.0.md',
 
 Write-Output '[OK] Slint 1.17.1 royalty-free v2: exact license + AboutSlint Help dialog wired'
 Write-Output '[OK] hactool ISC / hacbuild MIT / hactoolnet LibHac MIT notices retained'
+Write-Output '[OK] hactool Mbed TLS: pinned Apache-2.0 notice retained'

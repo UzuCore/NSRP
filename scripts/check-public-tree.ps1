@@ -11,7 +11,8 @@ $required=@(
     '.github/workflows/windows-build.yml','scripts/package.ps1',
     'scripts/apply-update.ps1','scripts/test-auto-update.ps1',
     'scripts/check-third-party-attribution.ps1',
-    'licenses/Slint-Royalty-free-2.0.md'
+    'licenses/Slint-Royalty-free-2.0.md',
+    'licenses/mbedtls-Apache-2.0.txt'
 )
 foreach($item in $required){
     if(-not(Test-Path -LiteralPath (Join-Path $root $item) -PathType Leaf)){
