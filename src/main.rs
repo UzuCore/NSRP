@@ -2599,22 +2599,42 @@ mod about_ui_tests {
             assert!(details.contains(&format!("NSRP v{APP_VERSION}")));
             assert!(details.contains(&workspace.to_string_lossy().to_string()));
 
-            // 680x446 About panel is centered in the 1400x760 logical
-            // window. The visible 88x34 close button is at its top right.
-            let click = slint::LogicalPosition::new(975.0, 185.0);
-            ui.window()
-                .dispatch_event(slint::platform::WindowEvent::PointerPressed {
-                    position: click,
-                    button: slint::platform::PointerEventButton::Left,
-                });
-            ui.window()
-                .dispatch_event(slint::platform::WindowEvent::PointerReleased {
-                    position: click,
-                    button: slint::platform::PointerEventButton::Left,
-                });
+            let click = |position: slint::LogicalPosition| {
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+            };
+
+            // The 620x440 dialog remains modal like the native Windows
+            // confirmations; clicking the backdrop must not dismiss it.
+            click(slint::LogicalPosition::new(20.0, 700.0));
+            assert!(
+                ui.get_about_open(),
+                "Backdrop dismissed the dialog at scale {factor}"
+            );
+
+            // Top-right Windows-style titlebar X.
+            click(slint::LogicalPosition::new(985.0, 180.0));
             assert!(
                 !ui.get_about_open(),
-                "Visible close button failed at scale {factor}"
+                "Caption close button failed at scale {factor}"
+            );
+
+            // The bottom confirmation button must remain clickable with
+            // the official AboutSlint widget displayed immediately above.
+            ui.invoke_show_about();
+            assert!(ui.get_about_open());
+            click(slint::LogicalPosition::new(940.0, 573.0));
+            assert!(
+                !ui.get_about_open(),
+                "Bottom OK button failed at scale {factor}"
             );
         }
         Ok(())
