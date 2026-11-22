@@ -1,8 +1,9 @@
 # NSRP: release, versioning and updater verification
 
-This is the self-contained public Git source directory. The Windows local
-workspace may still put it at `D:\NSW.dev\NSRP\rust_port`; a public GitHub
-checkout does not require the parent folder, private keys, or game samples.
+This is the self-contained public Git source directory. On the Windows
+development machine the source and local deployment root are both
+`D:\NSW.dev\NSRP` (no `rust_port` subdirectory). A public GitHub checkout
+does not require private keys or game samples.
 
 ## Version policy
 
@@ -75,12 +76,14 @@ GitHub Actions: the workflow runs it separately.
 
 ## Local workstation Release mirroring
 
-`D:\NSW.dev\NSRP\build.bat` (outside the public repo) delegates to the
-versioned `scripts/build_release.ps1` and publishes identical EXEs to
-`NSRP\nsrp.exe`, `NSRP\dist\nsrp.exe` and
-`NSRP\rust_port\target\release\nsrp.exe`, retaining rollback capability.
-Do not run this local publisher as part of Actions; the repository root's
-`build.bat` packages a standalone ZIP without touching its parent directory.
+`D:\NSW.dev\NSRP\build.bat` is now the repository's own versioned, standalone
+build entry point; it compiles `target\release\nsrp.exe` and packages the
+allowlisted ZIP under `dist`. The optional local publisher
+`scripts\publish_release.ps1` (or `scripts\build_release.ps1`) publishes
+identical EXEs to `NSRP\nsrp.exe`, `NSRP\dist\nsrp.exe` and
+`NSRP\target\release\nsrp.exe`, with rollback protection. The publisher
+never writes into the parent `D:\NSW.dev` directory. GitHub Actions does
+not invoke this local publisher.
 
 ## Safe in-app automatic update
 
@@ -122,7 +125,7 @@ replacement failure with SHA-protected disposable user-data sentinels.
   they contain a historic GPL binary. The public `main` must descend solely
   from the remote initial README and a clean GPL-free source snapshot.
 
-Old Stage31–47 extended build/QA commentary is retained **locally only** at
-`D:\NSW.dev\NSRP\_qa\stage61_github_source\source_before\BUILD_RELEASE_STAGES_31_47.md`.
-Historical probe examples are likewise archived below that QA folder and
-remain recoverable from local Git history.
+Historical handoff documents and workstation-only notes are archived under
+the Git-ignored `old\` directory. Current working instructions remain here
+and in the latest local handoff; archived QA fixtures are not required for a
+normal public source build.

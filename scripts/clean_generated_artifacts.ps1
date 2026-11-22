@@ -5,14 +5,14 @@ param([switch]$Apply)
 
 $ErrorActionPreference = "Stop"
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$expected = [IO.Path]::GetFullPath("D:\NSW.dev\NSRP\rust_port")
+$expected = [IO.Path]::GetFullPath("D:\NSW.dev\NSRP")
 if (-not $root.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing cleanup outside the verified NSRP Rust workspace: $root"
 }
 
 $release = Join-Path $root "target\release\nsrp.exe"
-$rootRelease = Join-Path $root "..\nsrp.exe"
-$distRelease = Join-Path $root "..\dist\nsrp.exe"
+$rootRelease = Join-Path $root "nsrp.exe"
+$distRelease = Join-Path $root "dist\nsrp.exe"
 foreach ($file in @($release, $rootRelease, $distRelease)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw "Refusing cleanup without the existing release executable: $file"

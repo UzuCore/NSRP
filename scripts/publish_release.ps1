@@ -10,8 +10,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $rustRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$projectRoot = (Resolve-Path (Join-Path $rustRoot '..')).Path
-$destination = if ($DestinationRoot) { [IO.Path]::GetFullPath($DestinationRoot) } else { $projectRoot }
+# The project source and deployment root are the same directory since the
+# former rust_port/ subtree was moved to the NSRP root. Never publish into
+# the parent NSW.dev directory by accident.
+$destination = if ($DestinationRoot) { [IO.Path]::GetFullPath($DestinationRoot) } else { $rustRoot }
 $source = Join-Path $rustRoot 'target\release\nsrp.exe'
 
 if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
