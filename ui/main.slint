@@ -558,6 +558,54 @@ component QtLogView inherits Rectangle {
         }
     }
 }
+// Shared NSRP dialog primitives. All in-app popups use the same caption,
+// border, button style and spacing; ordinary form buttons remain unchanged.
+component NsrpPopupCaption inherits Rectangle {
+    in property <string> caption;
+    callback close();
+    background: #ffffff;
+    Text {
+        x: 18px; width: parent.width - 88px; height: parent.height;
+        text: root.caption; color: #202124; font-size: 13px;
+        font-weight: 600; vertical-alignment: center; overflow: elide;
+    }
+    Rectangle {
+        x: parent.width - 47px; y: 0px; width: 46px; height: 33px;
+        background: close-hit.has-hover ? #e81123 : #ffffff;
+        Text {
+            width: parent.width; height: parent.height;
+            text: "×"; font-size: 20px; font-weight: 300;
+            color: close-hit.has-hover ? #ffffff : #333333;
+            horizontal-alignment: center; vertical-alignment: center;
+        }
+        close-hit := TouchArea {
+            width: parent.width; height: parent.height;
+            clicked => { root.close(); }
+        }
+    }
+}
+
+component NsrpPopupButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+    background: !root.enabled ? #f5f5f5 : (button-hit.has-hover ? #eaf2fa : #ffffff);
+    border-width: 1px;
+    border-color: !root.enabled ? #c7c7c7 : (button-hit.has-hover ? #0078d4 : #929292);
+    border-radius: 3px;
+    Text {
+        width: parent.width; height: parent.height;
+        text: root.label; color: root.enabled ? #202124 : #929292;
+        font-size: 12px;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    button-hit := TouchArea {
+        width: parent.width; height: parent.height;
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component AppWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.light; }
     title: "NSRP v" + root.app-version;
@@ -644,6 +692,13 @@ export component AppWindow inherits Window {
     // Help > About displays the official Slint attribution widget.
     in-out property <bool> about-open: false;
     in-out property <string> about-details: "";
+    // In-app information, warning/error and confirmation popup state.
+    // A Rust-side FIFO owns callbacks, so confirmation never blocks Slint's
+    // event loop and async update/download prompts cannot overwrite each other.
+    in-out property <bool> popup-open: false;
+    in-out property <string> popup-title: "";
+    in-out property <string> popup-message: "";
+    in-out property <bool> popup-confirm: false;
     // Stage53: purely read-only Program publication recovery inspection.
     in-out property <bool> recovery-open: false;
     in-out property <bool> recovery-loading: false;
@@ -675,6 +730,7 @@ export component AppWindow inherits Window {
     callback reset-current();
     callback exit-app();
     callback show-about();
+    callback popup-response(bool);
     callback open-updates();
     callback show-recovery();
     callback refresh-recovery();
@@ -1116,29 +1172,22 @@ export component AppWindow inherits Window {
         help-info-menu := TouchArea { x:3px; y:36px; width:143px; height:24px; clicked => { root.menu-open = 0; root.show-about(); } }
     }
     // All recovery controls are read-only: no restore, delete or rename.
-    if root.recovery-open : Rectangle {
+    if root.recovery-open : TouchArea {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
-        background: #00000055;
-        TouchArea { width: parent.width; height: parent.height; }
+    }
+    if root.recovery-open : Rectangle {
+        x: 184px; y: 78px; width: 1040px; height: 616px;
+        background: #0000001f; border-radius: 6px;
     }
     if root.recovery-open : Rectangle {
         x: 180px; y: 72px; width: 1040px; height: 616px;
         background: #ffffff;
-        border-width: 1px; border-color: #7c8795;
-        Rectangle {
-            x: 1px; y: 1px; width: parent.width - 2px; height: 45px;
-            background: #f0f2f5;
-            Text {
-                x: 18px; width: 590px; height: parent.height;
-                text: "Program 복구 이력 (읽기 전용)";
-                font-size: 16px; font-weight: 700; color: #202124;
-                vertical-alignment: center;
-            }
-            LegacyButton {
-                x: 948px; y: 6px; width: 74px; height: 30px;
-                text: "닫기";
-                clicked => { root.recovery-open = false; }
-            }
+        border-width: 1px; border-color: #b8bec6;
+        border-radius: 6px; clip: true;
+        NsrpPopupCaption {
+            x: 1px; y: 1px; width: parent.width - 2px; height: 46px;
+            caption: "Program 복구 이력 (읽기 전용)";
+            close => { root.recovery-open = false; }
         }
         Text {
             x: 18px; y: 52px; width: 1000px; height: 30px;
@@ -1161,15 +1210,15 @@ export component AppWindow inherits Window {
                 vertical-alignment: center; overflow: elide;
             }
         }
-        LegacyButton {
+        NsrpPopupButton {
             x: 797px; y: 90px; width: 102px; height: 30px;
-            text: "폴더 선택";
+            label: "폴더 선택";
             enabled: !root.recovery-loading;
             clicked => { root.choose-recovery-root(); }
         }
-        LegacyButton {
+        NsrpPopupButton {
             x: 905px; y: 90px; width: 117px; height: 30px;
-            text: root.recovery-loading ? "검사 중..." : "새로고침";
+            label: root.recovery-loading ? "검사 중..." : "새로고침";
             enabled: !root.recovery-loading;
             clicked => { root.refresh-recovery(); }
         }
@@ -1205,9 +1254,8 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Other NSRP confirmation/error popups use native Windows dialogs (rfd).
-    // Match their undecorated white content, standard caption and bottom
-    // action band here while retaining the actual licensed AboutSlint widget.
+    // All in-app popups share the white caption and button components.
+    // The About window retains the original Slint license attribution widget.
     if root.about-open : TouchArea {
         x: 0px; y: 0px; width: parent.width; height: parent.height;
     }
@@ -1227,29 +1275,10 @@ export component AppWindow inherits Window {
         border-radius: 6px;
         clip: true;
 
-        // A Windows-style caption, not a second colored application header.
-        Rectangle {
+        NsrpPopupCaption {
             x: 1px; y: 1px; width: parent.width - 2px; height: 46px;
-            background: #ffffff;
-            Text {
-                x: 18px; width: parent.width - 88px; height: parent.height;
-                text: "NSRP 정보"; color: #202124; font-size: 13px;
-                font-weight: 600; vertical-alignment: center;
-            }
-            Rectangle {
-                x: parent.width - 47px; y: 0px; width: 46px; height: 33px;
-                background: about-caption-close.has-hover ? #e81123 : #ffffff;
-                Text {
-                    width: parent.width; height: parent.height;
-                    text: "×"; font-size: 20px; font-weight: 300;
-                    color: about-caption-close.has-hover ? #ffffff : #333333;
-                    horizontal-alignment: center; vertical-alignment: center;
-                }
-                about-caption-close := TouchArea {
-                    width: parent.width; height: parent.height;
-                    clicked => { root.about-open = false; }
-                }
-            }
+            caption: "NSRP 정보";
+            close => { root.about-open = false; }
         }
 
         // Plain native-dialog content with a scrollable long workspace path.
@@ -1280,22 +1309,65 @@ export component AppWindow inherits Window {
             x: 1px; y: parent.height - 54px;
             width: parent.width - 2px; height: 53px;
             background: #f5f5f5;
-            Rectangle {
+            NsrpPopupButton {
+                x: parent.width - 116px; y: 10px; width: 96px; height: 32px;
+                label: "확인";
+                clicked => { root.about-open = false; }
+            }
+        }
+    }
+
+    // One common modal for notifications, errors and Yes/No confirmations.
+    // Details are scrollable, including long GitHub Release notes and paths.
+    // Rust owns a FIFO queue and delivers every callback only once.
+    if root.popup-open : TouchArea {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+    }
+    if root.popup-open : Rectangle {
+        x: (parent.width - 620px) / 2 + 4px;
+        y: (parent.height - 380px) / 2 + 6px;
+        width: 620px; height: 380px;
+        border-radius: 6px; background: #0000001f;
+    }
+    if root.popup-open : Rectangle {
+        x: (parent.width - 620px) / 2;
+        y: (parent.height - 380px) / 2;
+        width: 620px; height: 380px;
+        background: #ffffff; border-width: 1px;
+        border-color: #b8bec6; border-radius: 6px; clip: true;
+
+        NsrpPopupCaption {
+            x: 1px; y: 1px; width: parent.width - 2px; height: 46px;
+            caption: root.popup-title;
+            close => { root.popup-response(false); }
+        }
+        ScrollView {
+            x: 23px; y: 65px; width: parent.width - 46px; height: 242px;
+            viewport-width: self.width;
+            viewport-height: max(self.height, popup-detail-text.preferred-height + 16px);
+            popup-detail-text := Text {
+                x: 2px; y: 3px; width: parent.width - 18px;
+                height: self.preferred-height;
+                text: root.popup-message;
+                color: #202124; font-size: 13px; wrap: word-wrap;
+                vertical-alignment: top;
+            }
+        }
+        Rectangle {
+            x: 1px; y: parent.height - 54px;
+            width: parent.width - 2px; height: 53px;
+            background: #f5f5f5;
+            if root.popup-confirm : NsrpPopupButton {
+                x: parent.width - 218px; y: 10px;
+                width: 96px; height: 32px;
+                label: "아니요";
+                clicked => { root.popup-response(false); }
+            }
+            NsrpPopupButton {
                 x: parent.width - 116px; y: 10px;
                 width: 96px; height: 32px;
-                background: about-ok-touch.has-hover ? #eaf2fa : #ffffff;
-                border-width: 1px;
-                border-color: about-ok-touch.has-hover ? #0078d4 : #929292;
-                border-radius: 3px;
-                Text {
-                    width: parent.width; height: parent.height;
-                    text: "확인"; color: #202124; font-size: 12px;
-                    horizontal-alignment: center; vertical-alignment: center;
-                }
-                about-ok-touch := TouchArea {
-                    width: parent.width; height: parent.height;
-                    clicked => { root.about-open = false; }
-                }
+                label: root.popup-confirm ? "예" : "확인";
+                clicked => { root.popup-response(true); }
             }
         }
     }

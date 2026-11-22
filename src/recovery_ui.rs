@@ -412,7 +412,7 @@ mod tests {
             assert!(window.get_recovery_open(), "wheel, scale={factor}");
             stage54_click(&window, 4.0, 699.0); // Modal backdrop
             assert!(window.get_recovery_open(), "backdrop, scale={factor}");
-            stage54_click(&window, 1165.0, 94.0); // Close button
+            stage54_click(&window, 1194.0, 94.0); // Shared caption X
             assert!(!window.get_recovery_open(), "close, scale={factor}");
         }
         assert_eq!(fs::read_dir(sandbox.path())?.count(), 0);

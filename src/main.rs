@@ -8,6 +8,7 @@ use native_drop_win::{schedule_native_file_drop_subclass, start_native_file_drop
 mod drop_support;
 #[cfg(windows)]
 mod gui_scale;
+mod popup_ui;
 mod recovery_ui;
 mod update_ui;
 mod updater;
@@ -261,6 +262,7 @@ fn main() -> Result<()> {
     let tab_states = Arc::new(Mutex::new(build_tab_states(&initial_config)));
 
     let window = AppWindow::new()?;
+    popup_ui::wire(&window);
     window.set_app_version(updater::current_version().into());
     let initial_tab = initial_config.main.last_tab.clamp(0, 8);
     window.set_selected_tab(initial_tab);
@@ -368,7 +370,7 @@ fn main() -> Result<()> {
                     ui.set_stop_requested(false);
                     ui.set_status_text(format!("입력 오류: {err}").into());
                     append_log_direct(&ui, &format!("[오류] {err}"));
-                    show_input_validation_dialog(tab, &err);
+                    show_input_validation_dialog(&ui, tab, &err);
                     return;
                 }
             };
@@ -404,11 +406,7 @@ fn main() -> Result<()> {
                             Ok(summary) => {
                                 append_log_direct(&ui, &format!("✓ {summary}"));
                                 if notify {
-                                    let _ = rfd::MessageDialog::new()
-                                        .set_title("NSRP")
-                                        .set_description(&summary)
-                                        .set_buttons(rfd::MessageButtons::Ok)
-                                        .show();
+                                    popup_ui::notice(&ui, "NSRP", &summary);
                                 }
                                 apply_success_cleanup(&ui, operation_tab);
                                 capture_tab_state(
@@ -424,15 +422,11 @@ fn main() -> Result<()> {
                                 ui.set_status_text("오류".into());
                                 append_log_direct(&ui, &format!("[오류] {err:#}"));
                                 if operation_tab != 3 {
-                                    let _ = rfd::MessageDialog::new()
-                                        .set_title(operation_error_title(operation_tab))
-                                        .set_description(operation_error_message(
-                                            operation_tab,
-                                            &err,
-                                        ))
-                                        .set_level(rfd::MessageLevel::Error)
-                                        .set_buttons(rfd::MessageButtons::Ok)
-                                        .show();
+                                    popup_ui::notice(
+                                        &ui,
+                                        operation_error_title(operation_tab),
+                                        operation_error_message(operation_tab, &err),
+                                    );
                                 }
                             }
                         }
@@ -783,24 +777,58 @@ fn wire_file_dialogs(window: &AppWindow) {
     }
 }
 
-fn confirm_close_while_busy() -> bool {
-    matches!(
-        rfd::MessageDialog::new()
-            .set_title("작업 진행 중")
-            .set_description(
-                "현재 작업이 진행 중입니다.\n지금 종료하면 작업이 중단됩니다.\n\n정말 종료하시겠습니까?",
-            )
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show(),
-        rfd::MessageDialogResult::Yes
-    )
-}
-
 fn ui_has_background_analysis(ui: &AppWindow) -> bool {
     ui.get_patch_analyzing()
         || ui.get_title_analyzing()
         || ui.get_extract_analyzing()
         || ui.get_analyze_analyzing()
+}
+
+#[derive(Clone)]
+struct ExitContext {
+    weak: slint::Weak<AppWindow>,
+    paths: AppPaths,
+    busy: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
+    config: Arc<Mutex<AppConfig>>,
+    states: Arc<Mutex<Vec<TabUiState>>>,
+}
+
+impl ExitContext {
+    fn is_active(&self, ui: &AppWindow) -> bool {
+        self.busy.load(Ordering::SeqCst) || ui_has_background_analysis(ui)
+    }
+
+    fn finalize(&self, ui: &AppWindow) {
+        if self.busy.load(Ordering::SeqCst) {
+            self.cancel.store(true, Ordering::Relaxed);
+        }
+        if ui.get_analyze_analyzing() {
+            ui.invoke_stop_analyze();
+        }
+        let tab = ui.get_selected_tab().clamp(0, 8);
+        persist_settings(ui, tab, &self.config, &self.paths);
+        capture_tab_state(ui, &mut self.states.lock()[tab as usize]);
+    }
+
+    fn ask_then_exit(&self, ui: &AppWindow) {
+        // Never allow another close event to bypass an open modal.
+        if ui.get_popup_open() || ui.get_about_open() || ui.get_recovery_open() {
+            return;
+        }
+        let context = self.clone();
+        popup_ui::confirm(
+            ui,
+            "작업 진행 중",
+            "현재 작업이 진행 중입니다.\n지금 종료하면 작업이 중단됩니다.\n\n정말 종료하시겠습니까?",
+            move |accepted| {
+                if accepted && let Some(ui) = context.weak.upgrade() {
+                    context.finalize(&ui);
+                    let _ = ui.hide();
+                }
+            },
+        );
+    }
 }
 
 fn wire_window_actions(
@@ -856,58 +884,46 @@ fn wire_window_actions(
         });
     }
 
+    let exit_context = ExitContext {
+        weak: window.as_weak(),
+        paths: paths.clone(),
+        busy: busy.clone(),
+        cancel: cancel.clone(),
+        config: config.clone(),
+        states: states.clone(),
+    };
     {
-        let weak = window.as_weak();
-        let busy = busy.clone();
-        let cancel = cancel.clone();
-        let config = config.clone();
-        let states = states.clone();
-        let paths = paths.clone();
+        let context = exit_context.clone();
         window.on_exit_app(move || {
-            let Some(ui) = weak.upgrade() else {
+            let Some(ui) = context.weak.upgrade() else {
                 return;
             };
-            let active = busy.load(Ordering::SeqCst) || ui_has_background_analysis(&ui);
-            if active && !confirm_close_while_busy() {
+            if ui.get_popup_open() || ui.get_about_open() || ui.get_recovery_open() {
                 return;
             }
-            if busy.load(Ordering::SeqCst) {
-                cancel.store(true, Ordering::Relaxed);
+            if context.is_active(&ui) {
+                context.ask_then_exit(&ui);
+                return;
             }
-            if ui.get_analyze_analyzing() {
-                ui.invoke_stop_analyze();
-            }
-            let tab = ui.get_selected_tab().clamp(0, 8);
-            persist_settings(&ui, tab, &config, &paths);
-            capture_tab_state(&ui, &mut states.lock()[tab as usize]);
+            context.finalize(&ui);
             let _ = ui.hide();
         });
     }
 
     {
-        let weak = window.as_weak();
-        let busy = busy.clone();
-        let cancel = cancel.clone();
-        let config = config.clone();
-        let states = states.clone();
-        let paths = paths.clone();
+        let context = exit_context;
         window.window().on_close_requested(move || {
-            let Some(ui) = weak.upgrade() else {
+            let Some(ui) = context.weak.upgrade() else {
                 return CloseRequestResponse::HideWindow;
             };
-            let active = busy.load(Ordering::SeqCst) || ui_has_background_analysis(&ui);
-            if active && !confirm_close_while_busy() {
+            if ui.get_popup_open() || ui.get_about_open() || ui.get_recovery_open() {
                 return CloseRequestResponse::KeepWindowShown;
             }
-            if busy.load(Ordering::SeqCst) {
-                cancel.store(true, Ordering::Relaxed);
+            if context.is_active(&ui) {
+                context.ask_then_exit(&ui);
+                return CloseRequestResponse::KeepWindowShown;
             }
-            if ui.get_analyze_analyzing() {
-                ui.invoke_stop_analyze();
-            }
-            let tab = ui.get_selected_tab().clamp(0, 8);
-            persist_settings(&ui, tab, &config, &paths);
-            capture_tab_state(&ui, &mut states.lock()[tab as usize]);
+            context.finalize(&ui);
             CloseRequestResponse::HideWindow
         });
     }
@@ -1225,12 +1241,11 @@ fn wire_extract_analyzer(window: &AppWindow) {
                         sync_input_ui(&ui, &[]);
                         ui.set_status_text("오류".into());
                         append_log_direct(&ui, &format!("[오류] 구조 분석 실패: {err:#}"));
-                        let _ = rfd::MessageDialog::new()
-                            .set_title("분석 실패")
-                            .set_description(format!("파일을 읽어오는데 실패했습니다.\n\n{err:#}"))
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_buttons(rfd::MessageButtons::Ok)
-                            .show();
+                        popup_ui::notice(
+                            &ui,
+                            "분석 실패",
+                            format!("파일을 읽어오는데 실패했습니다.\n\n{err:#}"),
+                        );
                     }
                 }
             });
@@ -1513,12 +1528,7 @@ fn wire_analyze_package(window: &AppWindow, paths: AppPaths) {
                         ui.set_progress(1.0);
                         ui.set_status_text("오류".into());
                         append_log_direct(&ui, &format!("[오류] 분석 실패: {err:#}"));
-                        let _ = rfd::MessageDialog::new()
-                            .set_title("분석 실패")
-                            .set_description(format!("파일 분석 실패\n\n{err:#}"))
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_buttons(rfd::MessageButtons::Ok)
-                            .show();
+                        popup_ui::notice(&ui, "분석 실패", format!("파일 분석 실패\n\n{err:#}"));
                     }
                 }
             });
@@ -1610,14 +1620,11 @@ fn wire_title_analyzer(window: &AppWindow, paths: AppPaths) {
                             ui.set_progress(1.0);
                             ui.set_status_text("오류".into());
                             append_log_direct(&ui, &format!("[오류] 타이틀 분석 실패: {err:#}"));
-                            let _ = rfd::MessageDialog::new()
-                                .set_title("분석 실패")
-                                .set_description(format!(
-                                    "타이틀 정보를 읽어오는데 실패했습니다.\n\n{err:#}"
-                                ))
-                                .set_level(rfd::MessageLevel::Error)
-                                .set_buttons(rfd::MessageButtons::Ok)
-                                .show();
+                            popup_ui::notice(
+                                &ui,
+                                "분석 실패",
+                                format!("타이틀 정보를 읽어오는데 실패했습니다.\n\n{err:#}"),
+                            );
                         }
                     }
                 }
@@ -2190,18 +2197,8 @@ fn operation_error_title(tab: i32) -> &'static str {
     }
 }
 
-fn show_input_validation_dialog(tab: i32, err: &anyhow::Error) {
-    let level = if matches!(tab, 5 | 6) {
-        rfd::MessageLevel::Info
-    } else {
-        rfd::MessageLevel::Warning
-    };
-    let _ = rfd::MessageDialog::new()
-        .set_title("알림")
-        .set_description(format!("{err}"))
-        .set_level(level)
-        .set_buttons(rfd::MessageButtons::Ok)
-        .show();
+fn show_input_validation_dialog(ui: &AppWindow, _tab: i32, err: &anyhow::Error) {
+    popup_ui::notice(ui, "알림", err.to_string());
 }
 
 fn operation_error_message(tab: i32, err: &anyhow::Error) -> String {
@@ -2572,6 +2569,7 @@ mod about_ui_tests {
     #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
     fn stage63_help_about_opens_slint_attribution_dialog() -> Result<()> {
         let ui = AppWindow::new()?;
+        popup_ui::wire(&ui);
         // A deliberately long workspace path exercises the scrollable About
         // detail area instead of only the short default test path.
         let workspace = PathBuf::from(format!(
@@ -2636,6 +2634,63 @@ mod about_ui_tests {
                 !ui.get_about_open(),
                 "Bottom OK button failed at scale {factor}"
             );
+
+            // Stage 68: notifications and Yes/No prompts share the same
+            // white caption/footer widgets as About. Queued prompts must
+            // not overwrite one another or allow backdrop click-through.
+            let decisions = Rc::new(RefCell::new(Vec::<bool>::new()));
+            popup_ui::notice(
+                &ui,
+                "알림",
+                format!(
+                    "오류 메시지와 긴 파일 경로:\n{}",
+                    "C:\\very-long\\path\\".repeat(150)
+                ),
+            );
+            assert!(ui.get_popup_open(), "notice did not open at {factor}");
+            assert_eq!(ui.get_popup_title(), "알림", "notice title at {factor}");
+            assert!(!ui.get_popup_confirm(), "notice should be OK-only");
+
+            let rejected = decisions.clone();
+            popup_ui::confirm(
+                &ui,
+                "업데이트 설치",
+                "확인하시겠습니까?",
+                move |yes| {
+                    rejected.borrow_mut().push(yes);
+                },
+            );
+            assert_eq!(ui.get_popup_title(), "알림", "queue replaced notice");
+            click(slint::LogicalPosition::new(20.0, 700.0));
+            assert!(ui.get_popup_open(), "backdrop leaked at {factor}");
+            // Titlebar X closes only the notice, then advances FIFO.
+            click(slint::LogicalPosition::new(985.0, 207.0));
+            assert!(ui.get_popup_open(), "queued Yes/No not displayed");
+            assert_eq!(ui.get_popup_title(), "업데이트 설치");
+            assert!(ui.get_popup_confirm());
+
+            // '아니요' is a negative answer; it must never run the Yes path.
+            click(slint::LogicalPosition::new(839.0, 542.0));
+            assert!(!ui.get_popup_open(), "No button did not close at {factor}");
+            assert_eq!(&*decisions.borrow(), &[false]);
+
+            let approved = decisions.clone();
+            popup_ui::confirm(&ui, "종료 확인", "테스트 중", move |yes| {
+                approved.borrow_mut().push(yes);
+            });
+            click(slint::LogicalPosition::new(941.0, 542.0));
+            assert!(!ui.get_popup_open(), "Yes button did not close at {factor}");
+            assert_eq!(&*decisions.borrow(), &[false, true]);
+
+            let dismissed = decisions.clone();
+            popup_ui::confirm(&ui, "중단 확인", "테스트 중", move |yes| {
+                dismissed.borrow_mut().push(yes);
+            });
+            click(slint::LogicalPosition::new(985.0, 207.0));
+            // A stray duplicate click must not deliver a second response.
+            ui.invoke_popup_response(true);
+            assert!(!ui.get_popup_open(), "X button did not close at {factor}");
+            assert_eq!(&*decisions.borrow(), &[false, true, false]);
         }
         Ok(())
     }
