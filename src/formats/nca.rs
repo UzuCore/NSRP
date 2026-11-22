@@ -241,7 +241,8 @@ pub fn restore_legacy_rights_header_region_for_hash(
 /// Only recover the retail Rights ID if the caller has a matching title key.
 /// Legacy ticketless NCZ headers can be bootable as-is, but restoring a
 /// retail Rights ID without its title key makes the merged NSP/NSZ fail to
-/// launch. This policy is deliberately limited to the patch packaging path.
+/// launch. Packaging paths such as patching and splitting must only use this
+/// policy when the corresponding title key is available.
 pub fn restore_legacy_rights_header_region_if_key_available(
     path: &Path,
     offset: u64,
