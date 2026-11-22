@@ -2567,6 +2567,98 @@ mod about_ui_tests {
 
     #[test]
     #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
+    fn stage69_menubar_hover_switches_open_dropdown_without_click() -> Result<()> {
+        let ui = AppWindow::new()?;
+        wire_about_dialog(&ui, Path::new("C:\\NSRP_Menu_Hover_Test"));
+
+        for factor in [1.0_f32, 1.25, 1.5] {
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+                    scale_factor: factor,
+                });
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::Resized {
+                    size: slint::LogicalSize::new(1400.0, 760.0),
+                });
+
+            let move_to = |x, y| {
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                        position: slint::LogicalPosition::new(x, y),
+                    });
+            };
+            let click = |x, y| {
+                let position = slint::LogicalPosition::new(x, y);
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+            };
+
+            ui.set_menu_open(0);
+            move_to(220.0, 110.0);
+            move_to(20.0, 10.0);
+            assert_eq!(
+                ui.get_menu_open(),
+                0,
+                "Hover alone opened a menu at {factor}"
+            );
+
+            // Open File by clicking, then move right to Help and left again.
+            click(20.0, 10.0);
+            assert_eq!(ui.get_menu_open(), 1, "File click at {factor}");
+            move_to(65.0, 10.0);
+            assert_eq!(ui.get_menu_open(), 2, "File -> Help hover at {factor}");
+            move_to(20.0, 10.0);
+            assert_eq!(ui.get_menu_open(), 1, "Help -> File hover at {factor}");
+            move_to(65.0, 10.0);
+            assert_eq!(
+                ui.get_menu_open(),
+                2,
+                "File -> Help repeat hover at {factor}"
+            );
+
+            // Clicking the active title and the backdrop still closes it.
+            click(65.0, 10.0);
+            assert_eq!(
+                ui.get_menu_open(),
+                0,
+                "Active title did not close at {factor}"
+            );
+            move_to(20.0, 10.0);
+            assert_eq!(
+                ui.get_menu_open(),
+                0,
+                "Closed menu reopened on hover at {factor}"
+            );
+            click(20.0, 10.0);
+            assert_eq!(ui.get_menu_open(), 1);
+            click(300.0, 220.0);
+            assert_eq!(ui.get_menu_open(), 0, "Backdrop did not close at {factor}");
+
+            // Switching the menu must also expose Help's actual submenu
+            // actions, rather than just changing the top bar highlight.
+            click(20.0, 10.0);
+            move_to(65.0, 10.0);
+            click(105.0, 72.0); // Help > About (not in File's dropdown).
+            assert_eq!(ui.get_menu_open(), 0);
+            assert!(
+                ui.get_about_open(),
+                "Help submenu did not switch at {factor}"
+            );
+            ui.set_about_open(false);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
     fn stage63_help_about_opens_slint_attribution_dialog() -> Result<()> {
         let ui = AppWindow::new()?;
         popup_ui::wire(&ui);

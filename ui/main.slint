@@ -749,12 +749,26 @@ export component AppWindow inherits Window {
             Rectangle {
                 x: 0px; y: 0px; width: 40px; height: 21px;
                 background: transparent;
-                file-menu-touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; clicked => { root.menu-open = root.menu-open == 1 ? 0 : 1; } }
+                file-menu-touch := TouchArea {
+                    x:0px; y:0px; width:parent.width; height:parent.height;
+                    clicked => { root.menu-open = root.menu-open == 1 ? 0 : 1; }
+                    // While a menu is open, moving the cursor across the menu
+                    // bar must switch the actual dropdown, not just its image.
+                    changed has-hover => {
+                        if self.has-hover && root.menu-open != 0 { root.menu-open = 1; }
+                    }
+                }
             }
             Rectangle {
                 x: 40px; y: 0px; width: 52px; height: 21px;
                 background: transparent;
-                help-menu-touch := TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; clicked => { root.menu-open = root.menu-open == 2 ? 0 : 2; } }
+                help-menu-touch := TouchArea {
+                    x:0px; y:0px; width:parent.width; height:parent.height;
+                    clicked => { root.menu-open = root.menu-open == 2 ? 0 : 2; }
+                    changed has-hover => {
+                        if self.has-hover && root.menu-open != 0 { root.menu-open = 2; }
+                    }
+                }
             }
         }
         HorizontalLayout {

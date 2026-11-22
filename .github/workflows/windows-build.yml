@@ -60,6 +60,10 @@ jobs:
         shell: cmd
         run: cargo test --locked --bin nsrp stage63_help_about_opens_slint_attribution_dialog -- --ignored --test-threads=1
 
+      - name: Verify open menu follows mouse hover across the menu bar
+        shell: cmd
+        run: cargo test --locked --bin nsrp stage69_menubar_hover_switches_open_dropdown_without_click -- --ignored --test-threads=1
+
       - name: Check Rust lints
         shell: cmd
         run: cargo clippy --locked --all-targets -- -D warnings
