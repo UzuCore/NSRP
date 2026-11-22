@@ -19,6 +19,31 @@ use std::{
 
 const MAX_VISIBLE_RECORDS: usize = 64;
 
+/// `canonicalize` can return Win32 extended-length paths on hosted Windows
+/// runners (\\\\?\\C:\\...), while the user originally selected the ordinary
+/// drive/UNC spelling. Preserve the canonical path for I/O and the journal,
+/// but show an ordinary, complete path in the read-only recovery inspector.
+fn display_recovery_path(path: &Path) -> String {
+    let raw = path.display().to_string();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            let bytes = rest.as_bytes();
+            if bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && bytes[2] == b'\\'
+            {
+                return rest.to_owned();
+            }
+        }
+    }
+    raw
+}
+
 pub(crate) struct RecoveryInspection {
     pub(crate) count: usize,
     pub(crate) lines: Vec<String>,
@@ -104,7 +129,10 @@ pub(crate) fn inspect_recovery_root(root: &Path) -> Result<RecoveryInspection> {
                 "기록상 아니오"
             }
         ));
-        lines.push(format!("복구 폴더: {}", item.staging.display()));
+        lines.push(format!(
+            "복구 폴더: {}",
+            display_recovery_path(&item.staging)
+        ));
         lines.push(format!(
             "최초 기록: {}  |  당시 PID: {}  |  자동 복원: 안 함",
             item.journal.created_unix_seconds, item.journal.pid
@@ -121,7 +149,10 @@ pub(crate) fn inspect_recovery_root(root: &Path) -> Result<RecoveryInspection> {
                 },
                 observed_kind(&output.destination)
             ));
-            lines.push(format!("출력 경로: {}", output.destination.display()));
+            lines.push(format!(
+                "출력 경로: {}",
+                display_recovery_path(&output.destination)
+            ));
             lines.push(format!(
                 "임시 출력: {}  |  백업: {}",
                 observed_kind(&item.staging.join(&output.name)),
@@ -130,7 +161,7 @@ pub(crate) fn inspect_recovery_root(root: &Path) -> Result<RecoveryInspection> {
         }
         lines.push(format!(
             "저널: {}",
-            item.staging.join(PROGRAM_RECOVERY_JOURNAL).display()
+            display_recovery_path(&item.staging.join(PROGRAM_RECOVERY_JOURNAL))
         ));
         lines.push(format!(
             "⚠ {}",
@@ -446,6 +477,23 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn stage63_extended_windows_paths_display_without_device_prefix() {
+        let local = Path::new(r"\\?\C:\Users\runneradmin\AppData\Local\Temp\journal\romfs");
+        assert_eq!(
+            display_recovery_path(local),
+            r"C:\Users\runneradmin\AppData\Local\Temp\journal\romfs"
+        );
+        let unc = Path::new(r"\\?\UNC\server\share\journal\romfs");
+        assert_eq!(display_recovery_path(unc), r"\\server\share\journal\romfs");
+        let special = Path::new(r"\\?\Volume{A1}\journal");
+        assert_eq!(
+            display_recovery_path(special),
+            special.display().to_string()
+        );
+    }
+
     #[test]
     fn stage54_long_output_path_keeps_complete_readonly_detail() -> Result<()> {
         let root = tempfile::tempdir()?;
@@ -458,11 +506,18 @@ mod tests {
         write_program_publish_journal(staging.path(), &[("romfs", &output)])?;
         let found = inspect_recovery_root(root.path())?;
         assert_eq!(found.count, 1);
+        // Journals deliberately record the canonical parent. On some hosted
+        // Windows runners that path uses the extended-length spelling and
+        // resolves differently from the original temporary-root spelling.
+        // Test the full canonical destination without requiring verbatim
+        // input-path spelling (which is not the journal's contract).
+        let canonical_output = fs::canonicalize(&directory)?.join("romfs");
+        let expected = display_recovery_path(&canonical_output);
+        assert!(expected.contains(&"nested_".repeat(26)));
         assert!(
-            found
-                .lines
-                .iter()
-                .any(|s| s.contains(&output.display().to_string()))
+            found.lines.iter().any(|s| s.contains(&expected)),
+            "Long canonical recovery path was truncated or changed: expected={expected:?}, lines={:?}",
+            found.lines
         );
         assert!(!output.exists());
         Ok(())
