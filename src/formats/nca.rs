@@ -206,38 +206,6 @@ pub fn recrypt_header(
     Ok(output)
 }
 
-/// Restore the original rights-managed NCA header used by legacy NSRP NCZ files.
-/// The candidate is written only when the full reconstructed NCA SHA-256 matches
-/// the hash recorded in CNMT, so normal rights-free NCA files are never guessed.
-pub fn restore_legacy_rights_header_for_hash(
-    path: &Path,
-    title_id: &str,
-    expected_hash: &[u8; 32],
-    keys: &KeySet,
-) -> Result<bool> {
-    let size = std::fs::metadata(path)?.len();
-    restore_legacy_rights_header_region_for_hash(path, 0, size, title_id, expected_hash, keys)
-}
-
-pub fn restore_legacy_rights_header_region_for_hash(
-    path: &Path,
-    offset: u64,
-    size: u64,
-    title_id: &str,
-    expected_hash: &[u8; 32],
-    keys: &KeySet,
-) -> Result<bool> {
-    restore_legacy_rights_header_region_policy(
-        path,
-        offset,
-        size,
-        title_id,
-        expected_hash,
-        keys,
-        false,
-    )
-}
-
 /// Only recover the retail Rights ID if the caller has a matching title key.
 /// Legacy ticketless NCZ headers can be bootable as-is, but restoring a
 /// retail Rights ID without its title key makes the merged NSP/NSZ fail to
@@ -250,26 +218,6 @@ pub fn restore_legacy_rights_header_region_if_key_available(
     title_id: &str,
     expected_hash: &[u8; 32],
     keys: &KeySet,
-) -> Result<bool> {
-    restore_legacy_rights_header_region_policy(
-        path,
-        offset,
-        size,
-        title_id,
-        expected_hash,
-        keys,
-        true,
-    )
-}
-
-fn restore_legacy_rights_header_region_policy(
-    path: &Path,
-    offset: u64,
-    size: u64,
-    title_id: &str,
-    expected_hash: &[u8; 32],
-    keys: &KeySet,
-    require_title_key: bool,
 ) -> Result<bool> {
     if size < NCA_XTS_HEADER_SIZE as u64 {
         return Ok(false);
@@ -288,35 +236,9 @@ fn restore_legacy_rights_header_region_policy(
         return Ok(false);
     }
 
-    let title_bytes = hex::decode(title_id.trim()).context("CNMT Title ID hex 오류")?;
-    if title_bytes.len() != 8 {
-        bail!("CNMT Title ID 길이 오류: {title_id}");
-    }
-    let header_key = keys
-        .prod_key("header_key")
-        .context("header_key is missing from prod.keys")?;
-
-    let mut rights_last_candidates = vec![info.key_generation, 0];
-    rights_last_candidates.dedup();
-    for rights_last in rights_last_candidates {
-        if require_title_key {
-            let mut candidate_id = [0u8; 16];
-            candidate_id[..8].copy_from_slice(&title_bytes);
-            candidate_id[15] = rights_last;
-            if keys.title_key(&candidate_id).is_none() {
-                // Skipping this legacy header conversion keeps the known
-                // working ticketless crypto accessible to Eden.
-                continue;
-            }
-        }
-        let mut plain = info.decrypted_header.clone();
-        plain[0x230..0x240].fill(0);
-        plain[0x230..0x238].copy_from_slice(&title_bytes);
-        plain[0x23f] = rights_last;
-        plain[0x300..0x340].fill(0);
-
-        let mut candidate = plain;
-        nca_xts_transform(&mut candidate, header_key, true)?;
+    // Unsafe no-title-key restoration has intentionally been removed from
+    // the shared API so future packaging paths cannot reintroduce it.
+    for candidate in legacy_retail_header_candidates(&info, title_id, keys, true)? {
         if hash_region_with_header(&mut reader, offset, size, &candidate)? != *expected_hash {
             continue;
         }
@@ -328,6 +250,101 @@ fn restore_legacy_rights_header_region_policy(
         return Ok(true);
     }
     Ok(false)
+}
+
+/// Authenticate a previously ticketless NCZ/NCA without changing its
+/// executable header. Some legacy NCZ writers replaced the original retail
+/// rights header with working key-area crypto while retaining the retail NCA
+/// hash in CNMT. Accept that format only if restoring the exact historical
+/// header *in the hash calculation* reproduces the full CNMT SHA-256.
+///
+/// This is never a general SHA bypass. It returns false for corruption,
+/// unrecognized headers, or candidate hashes that do not match CNMT. The
+/// original input and the bootable rights-free output remain byte-identical.
+pub fn validate_legacy_ticketless_nca_region_for_hash(
+    path: &Path,
+    offset: u64,
+    size: u64,
+    title_id: &str,
+    expected_hash: &[u8; 32],
+    keys: &KeySet,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<bool> {
+    use std::sync::atomic::Ordering;
+    if size < NCA_XTS_HEADER_SIZE as u64 {
+        return Ok(false);
+    }
+    anyhow::ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+    let mut reader = BufReader::with_capacity(1024 * 1024, File::open(path)?);
+    reader.seek(SeekFrom::Start(offset))?;
+    let mut original_header = vec![0u8; NCA_XTS_HEADER_SIZE];
+    reader.read_exact(&mut original_header)?;
+    let info = decrypt_header(&original_header, keys)?;
+    if info.rights_id.iter().any(|&byte| byte != 0) {
+        return Ok(false);
+    }
+    let candidates = legacy_retail_header_candidates(&info, title_id, keys, false)?;
+    if candidates.is_empty() {
+        return Ok(false);
+    }
+    let mut hashes = candidates
+        .iter()
+        .map(|candidate| {
+            let mut hasher = Sha256::new();
+            hasher.update(candidate);
+            hasher
+        })
+        .collect::<Vec<_>>();
+    let mut remaining = size - NCA_XTS_HEADER_SIZE as u64;
+    let mut buf = vec![0u8; 1024 * 1024];
+    while remaining > 0 {
+        anyhow::ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+        let count = remaining.min(buf.len() as u64) as usize;
+        reader.read_exact(&mut buf[..count])?;
+        for hasher in &mut hashes {
+            hasher.update(&buf[..count]);
+        }
+        remaining -= count as u64;
+    }
+    Ok(hashes
+        .into_iter()
+        .any(|hasher| hasher.finalize().as_slice() == expected_hash))
+}
+
+fn legacy_retail_header_candidates(
+    info: &NcaInfo,
+    title_id: &str,
+    keys: &KeySet,
+    require_title_key: bool,
+) -> Result<Vec<Vec<u8>>> {
+    let title_bytes = hex::decode(title_id.trim()).context("CNMT Title ID hex 오류")?;
+    if title_bytes.len() != 8 {
+        bail!("CNMT Title ID 길이 오류: {title_id}");
+    }
+    let header_key = keys
+        .prod_key("header_key")
+        .context("header_key is missing from prod.keys")?;
+    let mut rights_last_candidates = vec![info.key_generation, 0];
+    rights_last_candidates.dedup();
+    let mut candidates = Vec::new();
+    for rights_last in rights_last_candidates {
+        if require_title_key {
+            let mut candidate_id = [0u8; 16];
+            candidate_id[..8].copy_from_slice(&title_bytes);
+            candidate_id[15] = rights_last;
+            if keys.title_key(&candidate_id).is_none() {
+                continue;
+            }
+        }
+        let mut plain = info.decrypted_header.clone();
+        plain[0x230..0x240].fill(0);
+        plain[0x230..0x238].copy_from_slice(&title_bytes);
+        plain[0x23f] = rights_last;
+        plain[0x300..0x340].fill(0);
+        nca_xts_transform(&mut plain, header_key, true)?;
+        candidates.push(plain);
+    }
+    Ok(candidates)
 }
 
 fn hash_region_with_header(
@@ -674,6 +691,89 @@ mod tests {
             &with_title_key,
         )?);
         assert_eq!(std::fs::read(target)?, retail_header);
+        Ok(())
+    }
+
+    #[test]
+    fn stage71_authenticates_legacy_ticketless_nca_without_mutating_it() -> Result<()> {
+        use std::{fs, sync::atomic::AtomicBool};
+        let keys = synthetic_keys();
+        let title_id = "01006d901dbc6800";
+        let mut plain = vec![0u8; NCA_XTS_HEADER_SIZE];
+        plain[0x200..0x204].copy_from_slice(b"NCA3");
+        plain[0x205] = 0;
+        plain[0x206] = 1;
+        plain[0x300..0x340].fill(0x44);
+        let mut rights_free = plain.clone();
+        let header_key = keys.prod_key("header_key").unwrap();
+        nca_xts_transform(&mut rights_free, header_key, true)?;
+        let mut retail = plain;
+        retail[0x230..0x238].copy_from_slice(&hex::decode(title_id)?);
+        retail[0x23f] = 1;
+        retail[0x300..0x340].fill(0);
+        nca_xts_transform(&mut retail, header_key, true)?;
+        let mut body = vec![0u8; 0x25000];
+        for (i, byte) in body.iter_mut().enumerate() {
+            *byte = ((i * 13 + 23) % 251) as u8;
+        }
+        let mut full_retail = retail;
+        full_retail.extend_from_slice(&body);
+        let expected_hash: [u8; 32] = Sha256::digest(&full_retail).into();
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("parent_container.bin");
+        let padding = vec![0xA5; 0x200];
+        let mut input = padding.clone();
+        input.extend_from_slice(&rights_free);
+        input.extend_from_slice(&body);
+        fs::write(&file, &input)?;
+        let cancel = AtomicBool::new(false);
+        let start = padding.len() as u64;
+        let size = (rights_free.len() + body.len()) as u64;
+        assert!(validate_legacy_ticketless_nca_region_for_hash(
+            &file,
+            start,
+            size,
+            title_id,
+            &expected_hash,
+            &keys,
+            &cancel,
+        )?);
+        assert_eq!(fs::read(&file)?, input, "Verification must be read-only");
+
+        // Wrong title and a single-byte body mutation must remain rejected.
+        assert!(!validate_legacy_ticketless_nca_region_for_hash(
+            &file,
+            start,
+            size,
+            "01006d901dbc6000",
+            &expected_hash,
+            &keys,
+            &cancel,
+        )?);
+        let flipped = start as usize + NCA_XTS_HEADER_SIZE + 0x101;
+        input[flipped] ^= 0x42;
+        fs::write(&file, &input)?;
+        assert!(!validate_legacy_ticketless_nca_region_for_hash(
+            &file,
+            start,
+            size,
+            title_id,
+            &expected_hash,
+            &keys,
+            &cancel,
+        )?);
+        assert!(
+            validate_legacy_ticketless_nca_region_for_hash(
+                &file,
+                start,
+                size,
+                title_id,
+                &expected_hash,
+                &keys,
+                &AtomicBool::new(true),
+            )
+            .is_err()
+        );
         Ok(())
     }
 }

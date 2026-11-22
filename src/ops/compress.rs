@@ -354,18 +354,35 @@ fn repair_legacy_container_headers_policy(
             return Ok(());
         }
     };
-    let title_keys = prod_keys
-        .parent()
-        .map(|parent| parent.join("title.keys"))
-        .filter(|path| path.is_file());
-    let loaded_keys = if available_keys.is_none() {
-        Some(KeySet::load(prod_keys, title_keys.as_deref())?)
-    } else {
-        None
+    // A converted NSP/XCI may be copied to a different emulator whose local
+    // title.keys is empty. Do not turn its bootable ticketless headers into
+    // Rights ID managed ones based on this machine's unrelated key database.
+    // Only original tickets that are actually shipped inside this package
+    // can authorize that nonportable header change.
+    let mut package_keys = match available_keys {
+        Some(keys) => KeySet {
+            prod: keys.prod.clone(),
+            title: Default::default(),
+        },
+        None => KeySet::load(prod_keys, None)?,
     };
-    let keys = available_keys
-        .or(loaded_keys.as_ref())
-        .context("No key set available for legacy NCA header verification")?;
+    let mut ticket_reader = BufReader::new(File::open(output)?);
+    for entry in entries.iter().filter(|entry| {
+        entry.name.to_ascii_lowercase().ends_with(".tik") && entry.size <= 1024 * 1024
+    }) {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("작업이 중단되었습니다");
+        }
+        ticket_reader.seek(SeekFrom::Start(entry.offset))?;
+        let mut ticket = vec![0u8; entry.size as usize];
+        ticket_reader.read_exact(&mut ticket)?;
+        package_keys.add_ticket_data(&entry.name, &ticket);
+    }
+    if package_keys.title.is_empty() {
+        log("포함된 유효 티켓 없음: 무티켓 NCA 헤더 보존 (외부 title.keys 비의존)".to_owned());
+        progress(1.0);
+        return Ok(());
+    }
     let total = cnmts
         .iter()
         .map(|cnmt| cnmt.contents.len())
@@ -384,25 +401,18 @@ fn repair_legacy_container_headers_policy(
                 .iter()
                 .find(|entry| entry.name.eq_ignore_ascii_case(&name))
             {
-                let restored = if available_keys.is_some() {
+                // Never introduce a retail Rights ID without an available
+                // title key, including the ordinary NSZ/XCZ decompressor
+                // path. This must be consistent with split and merge.
+                let restored =
                     crate::formats::nca::restore_legacy_rights_header_region_if_key_available(
                         output,
                         entry.offset,
                         entry.size,
                         &cnmt.title_id,
                         &content.hash,
-                        keys,
-                    )?
-                } else {
-                    crate::formats::nca::restore_legacy_rights_header_region_for_hash(
-                        output,
-                        entry.offset,
-                        entry.size,
-                        &cnmt.title_id,
-                        &content.hash,
-                        keys,
-                    )?
-                };
+                        &package_keys,
+                    )?;
                 if restored {
                     repaired += 1;
                     log(format!("레거시 NCZ rights 헤더 복원: {name}"));

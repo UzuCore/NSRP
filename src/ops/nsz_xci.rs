@@ -2,15 +2,15 @@
 //!
 //! Uncompressed NCA entries stay as bounded ranges in the source NSZ. Only
 //! compressed NCZ payloads are decoded into private, disposable NCA files.
-//! All supported CNMT content hashes are checked after the same legacy
-//! rights-header recovery policy used by the established NSP unpacker.
+//! CNMT is authenticated without converting ticketless NCZ headers to
+//! rights-managed headers that would no longer launch without a ticket.
 //! Unsupported layouts fall back to the unchanged NSP workflow; malformed
 //! NCZ decoding or failed native publication never silently falls back.
 
 use crate::{
     disk_space::ensure_disk_space,
     formats::{
-        nca::restore_legacy_rights_header_for_hash,
+        nca::validate_legacy_ticketless_nca_region_for_hash,
         ncz_stream::{decompress_ncz_region_to_nca, reconstructed_nca_size},
         pfs0::Pfs0Index,
     },
@@ -282,7 +282,7 @@ pub(crate) fn try_native_nsz_to_xci(
         .map(|entry| (entry.name.to_ascii_lowercase(), entry))
         .collect::<HashMap<_, _>>();
     let mut checked = 0usize;
-    let mut restored = 0usize;
+    let mut legacy_verified = 0usize;
     for cnmt in &cnmts {
         for content in &cnmt.contents {
             ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
@@ -299,31 +299,33 @@ pub(crate) fn try_native_nsz_to_xci(
                 ));
                 return Ok(false);
             }
-            let recovered = decoded_names.contains(&name.to_ascii_lowercase())
-                && restore_legacy_rights_header_for_hash(
-                    &entry.path,
-                    &cnmt.title_id,
-                    &content.hash,
-                    keys,
-                )?;
-            if recovered {
-                // This routine compared the candidate's *whole NCA* SHA-256
-                // against CNMT before writing its replacement header. Avoid
-                // an unnecessary second full-file SHA pass on large NCAs.
-                restored += 1;
-            } else if hash_bounded_region(entry, cancel)? != content.hash {
-                log(format!(
-                    "NSZ→XCI: CNMT NCA SHA 불일치({name}), 기존 경로 사용"
-                ));
-                return Ok(false);
+            if hash_bounded_region(entry, cancel)? != content.hash {
+                if decoded_names.contains(&name.to_ascii_lowercase())
+                    && validate_legacy_ticketless_nca_region_for_hash(
+                        &entry.path,
+                        entry.offset,
+                        entry.length,
+                        &cnmt.title_id,
+                        &content.hash,
+                        keys,
+                        cancel,
+                    )?
+                {
+                    legacy_verified += 1;
+                } else {
+                    log(format!(
+                        "NSZ→XCI: CNMT NCA SHA 불일치({name}), 기존 경로 사용"
+                    ));
+                    return Ok(false);
+                }
             }
             checked += 1;
         }
     }
     progress(0.35);
-    if restored > 0 {
+    if legacy_verified > 0 {
         log(format!(
-            "NSZ→XCI: CNMT SHA 검증 후 레거시 rights 헤더 {restored}개 복원"
+            "NSZ→XCI: 레거시 CNMT 원본 헤더 가상 SHA {legacy_verified}개 검증 (실제 무티켓 헤더 보존)"
         ));
     }
     let expected = sources

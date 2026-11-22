@@ -575,6 +575,104 @@ mod tests {
     };
 
     #[test]
+    #[ignore = "Requires local authorized ticketless NSZ and dedicated empty QA output folder"]
+    fn stage71_real_nsz_conversion_preserves_legacy_bootable_headers() -> Result<()> {
+        use anyhow::{Context, ensure};
+        let input = PathBuf::from(
+            std::env::var_os("NSRP_CONVERT_QA_INPUT").context("No NSZ fixture path")?,
+        );
+        let target = PathBuf::from(
+            std::env::var_os("NSRP_CONVERT_QA_OUTPUT").context("No QA output directory")?,
+        );
+        let resource_dir = PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_RESOURCES").context("No resources directory")?,
+        );
+        let prod_keys =
+            PathBuf::from(std::env::var_os("NSRP_MERGE_QA_KEYS").context("No key file")?);
+        let format = std::env::var("NSRP_CONVERT_QA_FORMAT")
+            .context("Set NSRP_CONVERT_QA_FORMAT to nsp or xci")?;
+        ensure!(
+            matches!(format.as_str(), "nsp" | "xci"),
+            "Unexpected target format"
+        );
+        ensure!(
+            !target.exists(),
+            "Refusing to overwrite an existing output folder"
+        );
+        let old_len = fs::metadata(&input)?.len();
+        let mut keys = KeySet::load_with_local_title_keys(&prod_keys)?;
+        let output = convert(
+            &input,
+            &target,
+            &resource_dir,
+            &prod_keys,
+            &mut keys,
+            &ConvertOptions {
+                target: if format == "nsp" {
+                    TargetFormat::Nsp
+                } else {
+                    TargetFormat::Xci
+                },
+                compress_after: false,
+                compression: CompressOptions::default(),
+            },
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |message| println!("{message}"),
+        )?;
+        ensure!(output.extension().is_some_and(|ext| ext == format.as_str()));
+        ensure!(output.is_file() && fs::metadata(&output)?.len() > 100_000);
+        let entries = crate::ops::container::list_entries(&output, true)?;
+        let cnmt_count = entries
+            .iter()
+            .filter(|entry| crate::ops::cnmt::is_cnmt_container_entry(&entry.name))
+            .count();
+        ensure!(cnmt_count == 4, "All 4 CNMT titles must survive conversion");
+        let original_entries = crate::ops::container::list_entries(&input, true)?;
+        let mut verified_headers = 0usize;
+        for entry in entries.iter().filter(|entry| {
+            entry.name.to_ascii_lowercase().ends_with(".nca")
+                && !crate::ops::cnmt::is_cnmt_container_entry(&entry.name)
+        }) {
+            let original_name = format!(
+                "{}.ncz",
+                entry.name.strip_suffix(".nca").unwrap_or(&entry.name)
+            );
+            let Some(original) = original_entries
+                .iter()
+                .find(|source| source.name.eq_ignore_ascii_case(&original_name))
+            else {
+                continue;
+            };
+            let mut source = File::open(&input)?;
+            source.seek(SeekFrom::Start(original.offset))?;
+            let mut original_head = vec![0u8; crate::formats::nca::NCA_XTS_HEADER_SIZE];
+            source.read_exact(&mut original_head)?;
+            let mut converted = File::open(&output)?;
+            converted.seek(SeekFrom::Start(entry.offset))?;
+            let mut converted_head = vec![0u8; crate::formats::nca::NCA_XTS_HEADER_SIZE];
+            converted.read_exact(&mut converted_head)?;
+            ensure!(
+                converted_head == original_head,
+                "Conversion rewrote a ticketless header: {}",
+                entry.name
+            );
+            verified_headers += 1;
+        }
+        ensure!(
+            verified_headers == 4,
+            "Expected 4 byte-identical NCZ-backed NCA headers, found {verified_headers}"
+        );
+        ensure!(fs::metadata(&input)?.len() == old_len, "Input size changed");
+        println!(
+            "STAGE71_NSZ_CONVERT_PASS format={format} cnmts={cnmt_count} headers={verified_headers} bytes={} output={}",
+            fs::metadata(&output)?.len(),
+            output.display()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn game_info_preset_has_builtin_fallback() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let data = game_info_preset_data(temp.path())?;

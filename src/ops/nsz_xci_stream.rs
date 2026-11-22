@@ -5,7 +5,7 @@
 
 use crate::{
     formats::{
-        nca::restore_legacy_rights_header_region_for_hash,
+        nca::validate_legacy_ticketless_nca_region_for_hash,
         ncz_stream::{decompress_ncz_region_to_nca, reconstructed_nca_size},
         pfs0::Pfs0Index,
     },
@@ -74,9 +74,11 @@ fn hash_region(path: &Path, offset: u64, size: u64, cancel: &AtomicBool) -> Resu
 /// authenticate it against CNMT *while* copying, without rereading it.
 fn write_plain_nca(
     input: &mut BufReader<File>,
+    source_path: &Path,
     entry: &VirtualEntry,
     output: &mut File,
     expected: Option<&ExpectedNca>,
+    keys: &KeySet,
     cancel: &AtomicBool,
 ) -> Result<()> {
     input.seek(SeekFrom::Start(entry.offset))?;
@@ -95,7 +97,16 @@ fn write_plain_nca(
     }
     if let (Some(digest), Some(expected)) = (hasher, expected) {
         ensure!(
-            digest.finalize().as_slice() == expected.sha256,
+            digest.finalize().as_slice() == expected.sha256
+                || validate_legacy_ticketless_nca_region_for_hash(
+                    source_path,
+                    entry.offset,
+                    entry.decoded_len,
+                    &expected.title_id,
+                    &expected.sha256,
+                    keys,
+                    cancel,
+                )?,
             "NSZ→XCI: CNMT SHA mismatch for uncompressed NCA {}",
             entry.name
         );
@@ -266,7 +277,7 @@ pub(crate) fn try_streamed_nsz_to_xci(
     }
 
     let mut verified = 0usize;
-    let mut restored = 0usize;
+    let mut legacy_verified = 0usize;
     let mut decoded_nczs = 0usize;
     let mut encoded_done = 0u64;
     let expected_lengths = virtual_sources.clone();
@@ -308,31 +319,28 @@ pub(crate) fn try_streamed_nsz_to_xci(
                 );
                 decoded_nczs += 1;
                 if let Some(expected) = expected {
-                    let repaired = restore_legacy_rights_header_region_for_hash(
-                        staged,
-                        start,
-                        entry.decoded_len,
-                        &expected.title_id,
-                        &expected.sha256,
-                        keys,
-                    )?;
-                    if repaired {
-                        restored += 1;
-                    } else {
-                        // Unmodified rights-managed or preexisting valid NCA:
-                        // require the *entire* NCA SHA, never just the HFS0
-                        // 0x200-byte header-prefix hash.
+                    if hash_region(staged, start, entry.decoded_len, cancel)? != expected.sha256 {
+                        // Authenticate the entire legacy retail-header hash
+                        // without writing it into the bootable NCA payload.
                         ensure!(
-                            hash_region(staged, start, entry.decoded_len, cancel)?
-                                == expected.sha256,
+                            validate_legacy_ticketless_nca_region_for_hash(
+                                staged,
+                                start,
+                                entry.decoded_len,
+                                &expected.title_id,
+                                &expected.sha256,
+                                keys,
+                                cancel,
+                            )?,
                             "Streamed NCZ CNMT SHA mismatch: {}",
                             entry.name
                         );
+                        legacy_verified += 1;
                     }
                     verified += 1;
                 }
             } else {
-                write_plain_nca(&mut input_reader, entry, out, expected, cancel)?;
+                write_plain_nca(&mut input_reader, input, entry, out, expected, keys, cancel)?;
                 if expected.is_some() {
                     verified += 1;
                 }
@@ -354,7 +362,7 @@ pub(crate) fn try_streamed_nsz_to_xci(
     if built {
         progress(0.72);
         log(format!(
-            "NSZ→XCI: NCZ 임시 NCA 0개 직접 스트리밍 완료 (중간 NSP 없음, NCZ {decoded_nczs}개, RAM CNMT {meta_in_memory}개, rights 복원 {restored}개, CNMT NCA SHA {verified}개 검증)"
+            "NSZ→XCI: NCZ 임시 NCA 0개 직접 스트리밍 완료 (중간 NSP 없음, NCZ {decoded_nczs}개, RAM CNMT {meta_in_memory}개, 가상 헤더 SHA 검증 {legacy_verified}개, CNMT NCA SHA {verified}개 검증)"
         ));
     }
     Ok(built)

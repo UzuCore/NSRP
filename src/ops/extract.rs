@@ -177,14 +177,24 @@ pub fn extract(
                 }
             }
         }
-        let title_keys = prod_keys
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("title.keys");
-        Some(KeySet::load(
-            prod_keys,
-            title_keys.is_file().then_some(title_keys.as_path()),
-        )?)
+        // An extracted NCA must remain usable without relying on title keys
+        // found only in this PC's local database. As in split, only a ticket
+        // included in the input package can authorize changing its header
+        // into a Rights ID managed one.
+        let mut package_keys = KeySet::load(prod_keys, None)?;
+        let mut ticket_reader = BufReader::new(File::open(input)?);
+        for entry in entries.iter().filter(|entry| {
+            entry.name.to_ascii_lowercase().ends_with(".tik") && entry.size <= 1024 * 1024
+        }) {
+            if cancel.load(Ordering::Relaxed) {
+                bail!("작업이 중단되었습니다");
+            }
+            ticket_reader.seek(SeekFrom::Start(entry.offset))?;
+            let mut ticket = vec![0u8; entry.size as usize];
+            ticket_reader.read_exact(&mut ticket)?;
+            package_keys.add_ticket_data(&entry.name, &ticket);
+        }
+        Some(package_keys)
     } else {
         None
     };
@@ -269,8 +279,11 @@ pub fn extract(
         if !options.unpack_nca
             && let (Some((title_id, expected_hash)), Some(keys)) =
                 (legacy_target.as_ref(), repair_keys.as_ref())
-            && crate::formats::nca::restore_legacy_rights_header_for_hash(
+            && !keys.title.is_empty()
+            && crate::formats::nca::restore_legacy_rights_header_region_if_key_available(
                 &output_path,
+                0,
+                fs::metadata(&output_path)?.len(),
                 title_id,
                 expected_hash,
                 keys,
@@ -408,8 +421,11 @@ pub fn extract(
                 let _ = fs::remove_dir_all(&unpack_dir);
                 if let (Some((title_id, expected_hash)), Some(keys)) =
                     (legacy_target.as_ref(), repair_keys.as_ref())
-                    && crate::formats::nca::restore_legacy_rights_header_for_hash(
+                    && !keys.title.is_empty()
+                    && crate::formats::nca::restore_legacy_rights_header_region_if_key_available(
                         &output_path,
+                        0,
+                        fs::metadata(&output_path)?.len(),
                         title_id,
                         expected_hash,
                         keys,
@@ -565,6 +581,80 @@ fn replace_extension(name: &str, ext: &str) -> String {
 mod tests {
     use super::*;
     use crate::formats::pfs0::build_from_paths;
+
+    #[test]
+    #[ignore = "Requires local authorized NSZ fixture and empty QA extraction directory"]
+    fn stage71_real_ticketless_ncz_extract_keeps_bootable_header() -> Result<()> {
+        use anyhow::{Context, ensure};
+        let input = PathBuf::from(
+            std::env::var_os("NSRP_CONVERT_QA_INPUT").context("Missing NSZ QA fixture")?,
+        );
+        let output = PathBuf::from(
+            std::env::var_os("NSRP_EXTRACT_QA_OUTPUT").context("Missing QA extraction folder")?,
+        );
+        let resources = PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_RESOURCES").context("Missing resources")?,
+        );
+        let prod_keys =
+            PathBuf::from(std::env::var_os("NSRP_MERGE_QA_KEYS").context("Missing keys")?);
+        ensure!(
+            !output.exists(),
+            "Never overwrite an existing QA extraction"
+        );
+        let tmp = tempfile::tempdir()?;
+        let cancel = AtomicBool::new(false);
+        let (entries, cnmts, _) = discover_game_metadata(
+            &input,
+            tmp.path(),
+            &resources.join("bin/hactool.exe"),
+            &prod_keys,
+            &cancel,
+        )?;
+        let base = cnmts
+            .iter()
+            .find(|info| info.meta_type == crate::ops::cnmt::ContentMetaType::Base)
+            .context("Missing base title")?;
+        let program = base
+            .contents
+            .iter()
+            .max_by_key(|entry| entry.size)
+            .context("Missing base content")?;
+        let name = format!("{}.nca", program.nca_id);
+        let entry = crate::ops::cnmt::resolve_content_entry(&entries, &name)
+            .context("Missing compressed program")?;
+        ensure!(entry.name.to_ascii_lowercase().ends_with(".ncz"));
+        let mut source = File::open(&input)?;
+        source.seek(SeekFrom::Start(entry.offset))?;
+        let mut source_head = vec![0u8; crate::formats::nca::NCA_XTS_HEADER_SIZE];
+        source.read_exact(&mut source_head)?;
+        let outputs = extract(
+            &input,
+            &output,
+            tmp.path(),
+            &resources.join("bin/hactool.exe"),
+            &prod_keys,
+            &ExtractOptions {
+                selected_names: vec![name],
+                unpack_nca: false,
+            },
+            &cancel,
+            &mut |_| {},
+            &mut |message| println!("{message}"),
+        )?;
+        ensure!(outputs.len() == 1, "Unexpected extracted file count");
+        let mut result_head = vec![0u8; crate::formats::nca::NCA_XTS_HEADER_SIZE];
+        File::open(&outputs[0])?.read_exact(&mut result_head)?;
+        ensure!(
+            source_head == result_head,
+            "Ticketless NCZ extraction must preserve its decryptable NCA header"
+        );
+        println!(
+            "STAGE71_EXTRACT_PASS bytes={} header_unchanged=true output={}",
+            fs::metadata(&outputs[0])?.len(),
+            outputs[0].display()
+        );
+        Ok(())
+    }
 
     #[test]
     fn display_entries_use_absolute_offsets_and_normalized_nca_names() -> Result<()> {

@@ -1,5 +1,7 @@
 use crate::{
+    formats::nca::validate_legacy_ticketless_nca_region_for_hash,
     formats::ncz_stream::decompress_ncz_region_to_nca,
+    keys::KeySet,
     ops::{
         cnmt::{
             CnmtInfo, ContentMetaType, NacpSummary, discover_game_metadata,
@@ -152,6 +154,7 @@ pub fn analyze(
     let mut checked = 0usize;
     let mut verification = Vec::new();
     let mut reader = BufReader::with_capacity(8 * 1024 * 1024, File::open(input)?);
+    let legacy_header_keys = KeySet::load(prod_keys, None).ok();
     for info in &cnmts {
         for content in &info.contents {
             if cancel.load(Ordering::Relaxed) {
@@ -170,9 +173,24 @@ pub fn analyze(
             {
                 item.size_ok = Some(entry.size == content.size);
                 if entry.size == content.size {
-                    item.hash_ok = Some(
-                        hash_region(&mut reader, entry.offset, entry.size, cancel)? == content.hash,
-                    );
+                    let direct_match =
+                        hash_region(&mut reader, entry.offset, entry.size, cancel)? == content.hash;
+                    let legacy_match = if direct_match {
+                        false
+                    } else if let Some(keys) = legacy_header_keys.as_ref() {
+                        validate_legacy_ticketless_nca_region_for_hash(
+                            input,
+                            entry.offset,
+                            entry.size,
+                            &info.title_id,
+                            &content.hash,
+                            keys,
+                            cancel,
+                        )?
+                    } else {
+                        false
+                    };
+                    item.hash_ok = Some(direct_match || legacy_match);
                 }
             }
             verification.push(item);
@@ -558,6 +576,51 @@ mod tests {
             offset,
             size,
         }
+    }
+
+    #[test]
+    #[ignore = "Requires local authorized split NSPs and prod.keys"]
+    fn stage71_real_ticketless_split_analyzer_reports_verified_hashes() -> Result<()> {
+        use anyhow::{Context, ensure};
+        let split = std::path::PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_SPLIT_DIR").context("Missing split fixture")?,
+        );
+        let root = std::path::PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_RESOURCES").context("Missing QA resource root")?,
+        );
+        let keys = std::path::PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_KEYS").context("Missing QA prod keys")?,
+        );
+        for kind in ["[Base]", "[Update]"] {
+            let path = fs::read_dir(&split)?
+                .filter_map(|file| file.ok())
+                .map(|file| file.path())
+                .find(|path| path.is_file() && path.to_string_lossy().contains(kind))
+                .with_context(|| format!("Missing {kind} NSP"))?;
+            let work = tempfile::tempdir()?;
+            let report = analyze(
+                &path,
+                work.path(),
+                &root.join("bin/hactool.exe"),
+                &keys,
+                &AtomicBool::new(false),
+                &mut |_| {},
+            )?;
+            ensure!(!report.verification.is_empty(), "No CNMT content to verify");
+            for item in &report.verification {
+                ensure!(
+                    item.present && item.size_ok == Some(true) && item.hash_ok == Some(true),
+                    "Analyzer falsely rejected valid ticketless {kind} content: {}",
+                    item.name
+                );
+            }
+            println!(
+                "STAGE71_ANALYZE_PASS kind={kind} cnmts={} verified={}",
+                report.cnmts.len(),
+                report.verification.len(),
+            );
+        }
+        Ok(())
     }
 
     #[test]

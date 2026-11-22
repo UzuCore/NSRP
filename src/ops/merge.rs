@@ -1,6 +1,6 @@
 use crate::{
     formats::{
-        nca::restore_legacy_rights_header_region_for_hash,
+        nca::validate_legacy_ticketless_nca_region_for_hash,
         ncz_stream::{decompress_ncz_region_to_nca, reconstructed_nca_size},
         pfs0::build_from_paths,
     },
@@ -334,6 +334,7 @@ pub fn merge_packages(
 
         let mut files = Vec::<(String, PathBuf)>::new();
         let mut names = HashSet::<String>::new();
+        let mut selected_hashes = BTreeMap::<String, ([u8; 32], u64)>::new();
         for (candidate_index, candidate) in candidates.iter().enumerate() {
             let source = &sources[candidate.source];
             add_named_entry(
@@ -347,6 +348,15 @@ pub fn merge_packages(
             )?;
             for content in &candidate.cnmt.contents {
                 let wanted = format!("{}.nca", content.nca_id);
+                let key = wanted.to_ascii_lowercase();
+                if let Some((prior_hash, prior_size)) = selected_hashes.get(&key) {
+                    ensure!(
+                        *prior_hash == content.hash && *prior_size == content.size,
+                        "서로 다른 CNMT가 같은 콘텐츠에 다른 해시를 요구합니다: {wanted}"
+                    );
+                } else {
+                    selected_hashes.insert(key, (content.hash, content.size));
+                }
                 if !try_add_content(
                     &wanted,
                     candidate.source,
@@ -354,6 +364,10 @@ pub fn merge_packages(
                     &group_dir,
                     &mut files,
                     &mut names,
+                    &candidate.cnmt.title_id,
+                    &content.hash,
+                    content.size,
+                    keys,
                     cancel,
                 )? {
                     bail!("병합 필수 콘텐츠 누락: {wanted}");
@@ -755,6 +769,7 @@ fn plan_direct_xci_members(
 fn write_merge_raw_member(
     source: &DirectMergeMember,
     out: &mut File,
+    keys: &KeySet,
     cancel: &AtomicBool,
 ) -> Result<()> {
     let mut input = BufReader::with_capacity(1024 * 1024, File::open(&source.path)?);
@@ -773,8 +788,18 @@ fn write_merge_raw_member(
         remaining -= take as u64;
     }
     if let (Some(hasher), Some(expected)) = (hasher, source.authenticated.as_ref()) {
+        let direct_hash_matches = hasher.finalize().as_slice() == expected.sha256;
         ensure!(
-            hasher.finalize().as_slice() == expected.sha256,
+            direct_hash_matches
+                || validate_legacy_ticketless_nca_region_for_hash(
+                    &source.path,
+                    source.offset,
+                    source.decoded_len,
+                    &expected.title_id,
+                    &expected.sha256,
+                    keys,
+                    cancel,
+                )?,
             "병합 원본 NCA CNMT SHA 불일치: {}",
             source.name
         );
@@ -830,37 +855,37 @@ fn write_direct_merged_xci(
                         member.name
                     );
                     if let Some(authenticated) = &member.authenticated {
-                        let repaired = restore_legacy_rights_header_region_for_hash(
-                            staged,
-                            start,
-                            member.decoded_len,
-                            &authenticated.title_id,
-                            &authenticated.sha256,
-                            keys,
-                        )?;
-                        if !repaired {
-                            let mut input =
-                                BufReader::with_capacity(1024 * 1024, File::open(staged)?);
-                            input.seek(SeekFrom::Start(start))?;
-                            let mut hasher = Sha256::new();
-                            let mut remaining = decoded;
-                            let mut buf = vec![0u8; 1024 * 1024];
-                            while remaining != 0 {
-                                ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
-                                let take = remaining.min(buf.len() as u64) as usize;
-                                input.read_exact(&mut buf[..take])?;
-                                hasher.update(&buf[..take]);
-                                remaining -= take as u64;
-                            }
-                            ensure!(
-                                hasher.finalize().as_slice() == authenticated.sha256,
-                                "병합 복원 NCZ CNMT SHA 불일치: {}",
-                                member.name
-                            );
+                        let mut input = BufReader::with_capacity(1024 * 1024, File::open(staged)?);
+                        input.seek(SeekFrom::Start(start))?;
+                        let mut hasher = Sha256::new();
+                        let mut remaining = decoded;
+                        let mut buf = vec![0u8; 1024 * 1024];
+                        while remaining != 0 {
+                            ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+                            let take = remaining.min(buf.len() as u64) as usize;
+                            input.read_exact(&mut buf[..take])?;
+                            hasher.update(&buf[..take]);
+                            remaining -= take as u64;
                         }
+                        let direct_hash_matches =
+                            hasher.finalize().as_slice() == authenticated.sha256;
+                        ensure!(
+                            direct_hash_matches
+                                || validate_legacy_ticketless_nca_region_for_hash(
+                                    staged,
+                                    start,
+                                    member.decoded_len,
+                                    &authenticated.title_id,
+                                    &authenticated.sha256,
+                                    keys,
+                                    cancel,
+                                )?,
+                            "병합 복원 NCZ CNMT SHA 불일치: {}",
+                            member.name
+                        );
                     }
                 } else {
-                    write_merge_raw_member(member, out, cancel)?;
+                    write_merge_raw_member(member, out, keys, cancel)?;
                 }
                 Ok(())
             },
@@ -1071,6 +1096,10 @@ fn try_add_content(
     dir: &Path,
     files: &mut Vec<(String, PathBuf)>,
     names: &mut HashSet<String>,
+    title_id: &str,
+    expected_hash: &[u8; 32],
+    expected_size: u64,
+    keys: &KeySet,
     cancel: &AtomicBool,
 ) -> Result<bool> {
     if names.contains(&wanted.to_ascii_lowercase()) {
@@ -1081,12 +1110,62 @@ fn try_add_content(
         if let Some(entry) = resolve_content_entry(&sources[index].entries, wanted) {
             let path = dir.join(format!("item_{}", files.len()));
             materialize_entry(&sources[index].path, entry, &path, cancel)?;
+            verify_fallback_merge_content(
+                &path,
+                wanted,
+                title_id,
+                expected_hash,
+                expected_size,
+                keys,
+                cancel,
+            )?;
             names.insert(wanted.to_ascii_lowercase());
             files.push((wanted.to_owned(), path));
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// The fallback NSP/XCI assembler must perform the same authentication as the
+/// direct XCI writer. A legacy rights-free header may be authenticated
+/// virtually against its original retail CNMT SHA but must not be rewritten.
+fn verify_fallback_merge_content(
+    path: &Path,
+    name: &str,
+    title_id: &str,
+    expected_hash: &[u8; 32],
+    expected_size: u64,
+    keys: &KeySet,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    let len = fs::metadata(path)?.len();
+    ensure!(len == expected_size, "병합 NCA 크기 불일치: {name}");
+    let mut reader = BufReader::with_capacity(1024 * 1024, File::open(path)?);
+    let mut remaining = len;
+    let mut digest = Sha256::new();
+    let mut scratch = vec![0u8; 1024 * 1024];
+    while remaining > 0 {
+        ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+        let take = remaining.min(scratch.len() as u64) as usize;
+        reader.read_exact(&mut scratch[..take])?;
+        digest.update(&scratch[..take]);
+        remaining -= take as u64;
+    }
+    ensure!(
+        digest.finalize().as_slice() == expected_hash
+            || validate_legacy_ticketless_nca_region_for_hash(
+                path,
+                0,
+                len,
+                title_id,
+                expected_hash,
+                keys,
+                cancel,
+            )?,
+        "병합 NCA CNMT SHA 불일치: {name}"
+    );
+    Ok(())
 }
 
 fn materialize_entry(
@@ -1165,6 +1244,132 @@ mod tests {
     use crate::ops::cnmt::CnmtContent;
     use crate::ops::cnmt::compressed_tests::fixture as encrypted_cnmt_fixture;
     use std::collections::HashMap;
+
+    /// Opt-in regression for a locally supplied ticketless NSZ split. It
+    /// reproduces the real base+update failure and the complete four-package
+    /// merge without embedding private files or credentials in the source.
+    #[test]
+    #[ignore = "Requires existing local split NSP files and an empty QA output directory"]
+    fn stage71_real_ticketless_split_roundtrip_merge() -> Result<()> {
+        let split_dir = PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_SPLIT_DIR").context("Missing split QA fixture")?,
+        );
+        let output_root = PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_OUTPUT").context("Missing QA output root")?,
+        );
+        let resource_dir = PathBuf::from(
+            std::env::var_os("NSRP_MERGE_QA_RESOURCES").context("Missing resource root")?,
+        );
+        let prod_keys =
+            PathBuf::from(std::env::var_os("NSRP_MERGE_QA_KEYS").context("Missing QA keys path")?);
+        let hactool = resource_dir.join("bin").join("hactool.exe");
+        let mode = std::env::var("NSRP_MERGE_QA_MODE").context("Missing QA mode")?;
+        ensure!(
+            matches!(mode.as_str(), "xci" | "xcz2" | "xcz" | "nsz"),
+            "Invalid QA mode"
+        );
+        ensure!(
+            !output_root.exists(),
+            "Refusing to overwrite an existing QA result"
+        );
+        let files = fs::read_dir(&split_dir)?
+            .map(|e| e.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        let choose = |tag: &str| -> Result<PathBuf> {
+            files
+                .iter()
+                .find(|p| {
+                    p.is_file()
+                        && p.file_name()
+                            .is_some_and(|s| s.to_string_lossy().contains(tag))
+                        && p.extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("nsp"))
+                })
+                .cloned()
+                .with_context(|| format!("Missing split {tag} fixture"))
+        };
+        let mut inputs = vec![choose("[Base]")?, choose("[Update]")?];
+        if matches!(mode.as_str(), "xcz" | "nsz") {
+            let mut dlcs = files
+                .iter()
+                .filter(|p| {
+                    p.is_file()
+                        && p.file_name()
+                            .is_some_and(|s| s.to_string_lossy().contains("[DLC]"))
+                        && p.extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("nsp"))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            dlcs.sort();
+            ensure!(dlcs.len() == 2, "Expected two DLC packages");
+            inputs.extend(dlcs);
+        }
+        let snapshots = inputs
+            .iter()
+            .map(|p| Ok((p.clone(), fs::metadata(p)?.len())))
+            .collect::<Result<Vec<_>>>()?;
+        let mut keys = KeySet::load_with_local_title_keys(&prod_keys)?;
+        let cancel = AtomicBool::new(false);
+        let opts = MergeOptions {
+            output_format: if mode == "nsz" {
+                MergeFormat::Nsp
+            } else {
+                MergeFormat::Xci
+            },
+            compress_after: mode != "xci",
+            use_game_title: true,
+            decompression_threads: 4,
+            compression: CompressOptions {
+                level: 3,
+                threads: 4,
+                block_mode: true,
+                long_mode: false,
+            },
+        };
+        let outputs = merge_packages(
+            &inputs,
+            &output_root,
+            true,
+            &resource_dir,
+            &hactool,
+            &prod_keys,
+            &mut keys,
+            &opts,
+            &cancel,
+            &mut |_| {},
+            &mut |line| println!("{line}"),
+        )?;
+        ensure!(outputs.len() == 1, "Expected one merged output");
+        let output = &outputs[0];
+        ensure!(output.is_file() && fs::metadata(output)?.len() > 100_000);
+        let entries = container::list_entries(output, true)?;
+        let expected_cnmts = if matches!(mode.as_str(), "xci" | "xcz2") {
+            2
+        } else {
+            4
+        };
+        ensure!(
+            entries
+                .iter()
+                .filter(|entry| cnmt::is_cnmt_container_entry(&entry.name))
+                .count()
+                == expected_cnmts,
+            "Merged output must preserve every selected CNMT"
+        );
+        for (file, old_len) in snapshots {
+            ensure!(
+                fs::metadata(file)?.len() == old_len,
+                "Original fixture length changed"
+            );
+        }
+        println!(
+            "STAGE71_MERGE_PASS mode={mode} size={} cnmts={expected_cnmts} output={}",
+            fs::metadata(output)?.len(),
+            output.display()
+        );
+        Ok(())
+    }
 
     #[test]
     fn stage38_compressed_cnmt_direct_xci_merge_and_atomic_failure() -> Result<()> {
