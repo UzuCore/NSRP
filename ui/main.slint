@@ -1265,10 +1265,6 @@ export component AppWindow inherits Window {
                 vertical-alignment: top;
             }
         }
-        Rectangle {
-            x: 23px; y: 219px; width: parent.width - 46px; height: 1px;
-            background: #e5e5e5;
-        }
         Text {
             x: 23px; y: 229px; width: parent.width - 46px; height: 23px;
             text: "UI 프레임워크 · Slint (로열티 프리 데스크톱 라이선스 2.0)";
@@ -1278,14 +1274,12 @@ export component AppWindow inherits Window {
             x: 23px; y: 254px; width: 312px; height: 124px;
         }
 
-        // Same bottom button band used by native confirmation dialogs.
+        // Keep the confirmation area seamless: do not draw a thin horizontal
+        // separator that looks like a stray line at the bottom of the dialog.
         Rectangle {
             x: 1px; y: parent.height - 54px;
             width: parent.width - 2px; height: 53px;
             background: #f5f5f5;
-            Rectangle {
-                width: parent.width; height: 1px; background: #dedede;
-            }
             Rectangle {
                 x: parent.width - 116px; y: 10px;
                 width: 96px; height: 32px;
