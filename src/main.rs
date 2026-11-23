@@ -2075,11 +2075,24 @@ fn run_operation(
             Ok(format!("압축 해제 완료: {}개 파일", request.inputs.len()))
         }
         7 => {
-            let format = if request.target_format.eq_ignore_ascii_case("XCI") {
+            let format = if request.target_format.eq_ignore_ascii_case("NSP") {
+                MergeFormat::Nsp
+            } else if request.target_format.eq_ignore_ascii_case("XCI") {
                 MergeFormat::Xci
             } else {
-                MergeFormat::Nsp
+                bail!("지원하지 않는 병합 출력 포맷: {}", request.target_format);
             };
+            let expected_extension = format.output_extension(request.compress_after);
+            log(format!(
+                "  └ 선택한 출력: {} / 병합 후 압축: {} → 최종 형식: .{}",
+                request.target_format.to_ascii_uppercase(),
+                if request.compress_after {
+                    "사용"
+                } else {
+                    "미사용"
+                },
+                expected_extension.to_ascii_uppercase()
+            ));
             let outputs = merge::merge_packages(
                 &request.inputs,
                 &request.output_dir,
@@ -2099,7 +2112,23 @@ fn run_operation(
                 &mut progress,
                 &mut log,
             )?;
-            Ok(format!("병합 완료: {}개 결과", outputs.len()))
+            for path in &outputs {
+                if !path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case(expected_extension))
+                {
+                    bail!(
+                        "병합 결과 포맷 불일치: 요청한 .{expected_extension} 대신 {}",
+                        path.display()
+                    );
+                }
+                log(format!("  └ 생성된 병합 파일: {}", path.display()));
+            }
+            Ok(format!(
+                "병합 완료: {}개 결과 (.{expected_extension})",
+                outputs.len()
+            ))
         }
         8 => {
             let count = request.inputs.len() as f32;
@@ -2564,6 +2593,146 @@ fn tab_name(tab: i32) -> &'static str {
 #[cfg(all(test, windows))]
 mod about_ui_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
+    fn stage72_merge_format_radio_and_compression_checkbox_pointer_regression() -> Result<()> {
+        let ui = AppWindow::new()?;
+        let temp = tempfile::tempdir()?;
+        let input_a = temp.path().join("base.nsp");
+        let input_b = temp.path().join("update.nsp");
+        fs::write(&input_a, b"test-base")?;
+        fs::write(&input_b, b"test-update")?;
+        sync_input_ui(&ui, &[input_a, input_b]);
+        ui.set_output_dir(
+            temp.path()
+                .join("output")
+                .to_string_lossy()
+                .to_string()
+                .into(),
+        );
+        ui.set_core_count(8);
+        ui.set_thread_count(2.0);
+        for scale in [1.0_f32, 1.25, 1.5] {
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+                    scale_factor: scale,
+                });
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::Resized {
+                    size: slint::LogicalSize::new(1400.0, 760.0),
+                });
+            let click = |x, y| {
+                let position = slint::LogicalPosition::new(x, y);
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+            };
+            ui.set_selected_tab(7);
+            ui.set_target_format("XCI".into());
+            ui.set_compress_after(false);
+            click(111.0, 579.0);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "NSP",
+                "Merge NSP click, {scale}x"
+            );
+            click(230.0, 579.0);
+            assert!(ui.get_compress_after(), "Merge compress check, {scale}x");
+            let nsz_request = collect_request(&ui, 7)?;
+            assert_eq!(nsz_request.target_format, "NSP");
+            assert!(nsz_request.compress_after);
+            assert_eq!(
+                MergeFormat::Nsp.output_extension(nsz_request.compress_after),
+                "nsz",
+                "NSP + compress must pass NSZ to worker at {scale}x"
+            );
+            click(160.0, 579.0);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "XCI",
+                "Merge XCI click, {scale}x"
+            );
+            let xcz_request = collect_request(&ui, 7)?;
+            assert_eq!(xcz_request.target_format, "XCI");
+            assert_eq!(
+                MergeFormat::Xci.output_extension(xcz_request.compress_after),
+                "xcz",
+                "XCI + compress must pass XCZ to worker at {scale}x"
+            );
+            click(111.0, 579.0);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "NSP",
+                "Merge NSP reselect, {scale}x"
+            );
+            assert!(
+                ui.get_compress_after(),
+                "Compression unexpectedly reset, {scale}x"
+            );
+            let mut remembered = TabUiState::default();
+            capture_tab_state(&ui, &mut remembered);
+            ui.set_target_format("XCI".into());
+            ui.set_compress_after(false);
+            apply_tab_state(&ui, &remembered);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "NSP",
+                "Tab restore, {scale}x"
+            );
+            assert!(
+                ui.get_compress_after(),
+                "Tab restored compression flag, {scale}x"
+            );
+            click(230.0, 579.0);
+            assert!(!ui.get_compress_after(), "Uncheck compression, {scale}x");
+            let nsp_request = collect_request(&ui, 7)?;
+            assert_eq!(
+                MergeFormat::Nsp.output_extension(nsp_request.compress_after),
+                "nsp",
+                "NSP without compression must remain NSP at {scale}x"
+            );
+            click(160.0, 579.0);
+            let xci_request = collect_request(&ui, 7)?;
+            assert_eq!(
+                MergeFormat::Xci.output_extension(xci_request.compress_after),
+                "xci",
+                "XCI without compression must remain XCI at {scale}x"
+            );
+            // Conversion uses the same legacy radio assets and must not
+            // regress into a permanently NSP-looking selector either.
+            ui.set_selected_tab(4);
+            ui.set_target_format("XCI".into());
+            ui.set_compress_after(false);
+            click(120.0, 579.0);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "NSP",
+                "Conversion NSP click at {scale}x"
+            );
+            click(237.0, 579.0);
+            assert!(
+                ui.get_compress_after(),
+                "Conversion compress click at {scale}x"
+            );
+            click(167.0, 579.0);
+            assert_eq!(
+                ui.get_target_format().as_str(),
+                "XCI",
+                "Conversion XCI click at {scale}x"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]

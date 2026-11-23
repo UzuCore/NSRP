@@ -87,6 +87,22 @@ component QtRadioButton inherits Rectangle {
     if root.text == "NSP" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_nsp_off.png"); }
     if root.text == "XCI" && root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_xci_on.png"); }
     if root.text == "XCI" && !root.checked : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/radio_xci_off.png"); }
+    // The original ON and OFF radio bitmaps are byte-identical, so the
+    // previous UI always appeared to have NSP selected regardless of state.
+    // Paint a real state-driven circle without changing the original labels.
+    Rectangle {
+        x:0px; y:0px; width:16px; height:20px;
+        background:#f9f9f9;
+        Rectangle {
+            x:0px; y:3px; width:14px; height:14px;
+            background:#ffffff;
+            border-width:1px; border-color:#787878; border-radius:7px;
+            if root.checked : Rectangle {
+                x:4px; y:4px; width:6px; height:6px;
+                background:#235eaa; border-radius:3px;
+            }
+        }
+    }
     TouchArea { x:0px; y:0px; width:parent.width; height:parent.height; enabled: root.enabled; clicked => { root.clicked(); } }
 }
 component QtSlider inherits Rectangle {
@@ -976,6 +992,11 @@ export component AppWindow inherits Window {
                             FieldLabel { x:20px; y:512px; width:67px; height:20px; text:"변환할 포맷:"; }
                             QtRadioButton { x:93px; y:512px; width:46px; height:20px; text:"NSP"; checked:root.target-format == "NSP"; clicked => { root.target-format = "NSP"; } } QtRadioButton { x:145px; y:512px; width:41px; height:20px; text:"XCI"; checked:root.target-format == "XCI"; clicked => { root.target-format = "XCI"; } }
                             QtCheckBox { x:212px; y:512px; width:91px; height:20px; text:"출력 후 압축"; checked <=> root.compress-after; }
+                            Text {
+                                x:315px; y:512px; width:155px; height:20px;
+                                vertical-alignment:center; font-size:12px; color:#295b91;
+                                text:"최종 결과: " + (root.target-format == "NSP" ? (root.compress-after ? "NSZ" : "NSP") : (root.compress-after ? "XCZ" : "XCI"));
+                            }
                             OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
                             QtCheckBox { x:638px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
                             if !root.busy : BlueAction { x:20px; y:622px; width:789px; height:36px; text:"변환 시작"; action-enabled: true; clicked => { root.start-operation(4); } }
@@ -1051,6 +1072,11 @@ export component AppWindow inherits Window {
                             FieldLabel { x:20px; y:512px; width:55px; height:20px; text:"출력 포맷:"; }
                             QtRadioButton { x:81px; y:512px; width:46px; height:20px; text:"NSP"; checked:root.target-format == "NSP"; clicked => { root.target-format = "NSP"; } } QtRadioButton { x:133px; y:512px; width:41px; height:20px; text:"XCI"; checked:root.target-format == "XCI"; clicked => { root.target-format = "XCI"; } }
                             QtCheckBox { x:200px; y:512px; width:91px; height:20px; text:"출력 후 압축"; checked <=> root.compress-after; }
+                            Text {
+                                x:303px; y:512px; width:155px; height:20px;
+                                vertical-alignment:center; font-size:12px; color:#295b91;
+                                text:"최종 결과: " + (root.target-format == "NSP" ? (root.compress-after ? "NSZ" : "NSP") : (root.compress-after ? "XCZ" : "XCI"));
+                            }
                             OutputFolderRow { x:20px; y:548px; width:789px; height:32px; output-dir <=> root.output-dir; choose => { root.choose-output(); } }
                             QtCheckBox { x:521px; y:596px; width:171px; height:20px; text:"작업 완료 시 알림창 띄우기"; checked <=> root.notify-done; }
                             QtCheckBox { x:698px; y:596px; width:111px; height:20px; text:"타이틀 가져오기"; checked <=> root.use-game-title; }
@@ -1109,7 +1135,15 @@ export component AppWindow inherits Window {
                     if root.selected-tab == 5 : TouchArea { x:434px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
                     if root.selected-tab == 6 : TouchArea { x:515px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
                     if root.selected-tab == 6 : TouchArea { x:692px; y:621px; width:119px; height:20px; clicked => { root.remove-source = !root.remove-source; } }
-                    merge-compress-hit := TouchArea { x:202px; y:537px; width:91px; height:20px; enabled:root.selected-tab == 7; clicked => { root.compress-after = !root.compress-after; } }
+                    merge-options-hit := TouchArea {
+                        x:83px; y:537px; width:210px; height:20px;
+                        enabled:root.selected-tab == 7;
+                        clicked => {
+                            if (self.mouse-x < 46px) { root.target-format = "NSP"; }
+                            else if (self.mouse-x >= 52px && self.mouse-x < 93px) { root.target-format = "XCI"; }
+                            else if (self.mouse-x >= 119px) { root.compress-after = !root.compress-after; }
+                        }
+                    }
                     if root.selected-tab == 7 : TouchArea { x:523px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
                     merge-title-hit := TouchArea { x:700px; y:621px; width:111px; height:20px; enabled:root.selected-tab == 7; clicked => { root.use-game-title = !root.use-game-title; } }
                     if root.selected-tab == 8 : TouchArea { x:523px; y:621px; width:171px; height:20px; clicked => { root.notify-done = !root.notify-done; } }
@@ -1127,7 +1161,7 @@ export component AppWindow inherits Window {
                         x:430px; y:558px; width:381px; height:56px;
                         text:"블록 모드: 1MB 단위 독립 압축 (에뮬레이터 직접 마운트 호환)\n블록리스 모드: 파일 크기가 더 작음 (일반 설치 권장)";
                     }
-                    if merge-compress-hit.has-hover : LegacyTooltip {
+                    if merge-options-hit.has-hover && merge-options-hit.mouse-x >= 119px : LegacyTooltip {
                         x:202px; y:443px; width:430px; height:82px;
                         text:"체크 시 결과를 압축 포맷으로 출력합니다.\n• NSP 선택 + 체크 → NSZ\n• XCI 선택 + 체크 → XCZ\n체크 해제 시 입력이 NSZ/XCZ 여도 NSP/XCI 로만 출력됩니다.";
                     }

@@ -43,6 +43,19 @@ pub enum MergeFormat {
     Xci,
 }
 
+impl MergeFormat {
+    /// Always derive the output suffix from the selected container and
+    /// compression flag, independent of the source package extension.
+    pub fn output_extension(self, compress_after: bool) -> &'static str {
+        match (self, compress_after) {
+            (Self::Nsp, false) => "nsp",
+            (Self::Nsp, true) => "nsz",
+            (Self::Xci, false) => "xci",
+            (Self::Xci, true) => "xcz",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MergeOptions {
     pub output_format: MergeFormat,
@@ -467,6 +480,21 @@ pub fn merge_packages(
         };
         outputs.push(final_path);
         progress(0.20 + 0.80 * (group_index + 1) as f32 / group_count as f32);
+    }
+    // A correct merge must never silently publish the other container type.
+    // Validate both optimized XCI streaming and the NSP/XCI fallback paths.
+    let expected_extension = options
+        .output_format
+        .output_extension(options.compress_after);
+    for path in &outputs {
+        ensure!(
+            path.extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case(expected_extension)),
+            "병합 결과 출력 포맷 불일치: .{} 요청, 실제 {}",
+            expected_extension,
+            path.display()
+        );
     }
     progress(1.0);
     Ok(outputs)
@@ -1244,6 +1272,14 @@ mod tests {
     use crate::ops::cnmt::CnmtContent;
     use crate::ops::cnmt::compressed_tests::fixture as encrypted_cnmt_fixture;
     use std::collections::HashMap;
+
+    #[test]
+    fn stage72_output_format_and_compression_extension_matrix() {
+        assert_eq!(MergeFormat::Nsp.output_extension(false), "nsp");
+        assert_eq!(MergeFormat::Nsp.output_extension(true), "nsz");
+        assert_eq!(MergeFormat::Xci.output_extension(false), "xci");
+        assert_eq!(MergeFormat::Xci.output_extension(true), "xcz");
+    }
 
     /// Opt-in regression for a locally supplied ticketless NSZ split. It
     /// reproduces the real base+update failure and the complete four-package
