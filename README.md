@@ -1,121 +1,108 @@
-# NSRP — Nintendo Switch ROM Processor
+# NSRP — Nintendo Switch 패키지 처리 도구
 
-NSRP is a Windows GUI and Rust library for inspecting and processing
-user-supplied Nintendo Switch package/container files. It contains native
-streaming container readers/writers and isolated external-tool compatibility
-fallbacks. The source does **not** include game images, tickets, console keys
-or third-party user databases.
+**NSRP**는 사용자가 제공한 Nintendo Switch 게임 패키지·컨테이너 파일을 검사하고 처리하는 **Windows GUI 프로그램**입니다. Rust 처리 엔진과 Slint 기반의 화면을 사용하며, 자체 스트리밍 파서·생성기와 필요한 일부 호환성 도구로 작업을 수행합니다.
 
-**Application version:** defined by `Cargo.toml`. The precise build is identified by
-the 40-character Git commit embedded at compile time and shown as a short
-commit next to the version in the program title and About dialog.
+> **주의:** 저장소와 배포 파일에는 게임 이미지, 콘솔 키(`prod.keys`, `title.keys`), 티켓, 사용자 데이터베이스가 포함되지 않습니다. 사용 권한이 있는 콘텐츠만 처리해야 합니다.
 
-## Source tree
+[최신 버전 다운로드](https://github.com/UzuCore/NSRP/releases/latest) · [빌드 및 배포 안내](BUILD_RELEASE.md) · [모듈 구조](docs/architecture/NSRP_MODULES.md)
+
+## 주요 기능
+
+- **파일 분석:** NSP·NSZ·XCI·XCZ 등 지원 컨테이너의 구성과 메타데이터 확인
+- **변환·압축·해제:** 지원하는 형식 간 변환과 압축·압축 해제
+- **병합·분할:** 본편·업데이트·DLC를 CNMT 기반으로 판별해 병합하거나 구성별로 분할
+- **타이틀 수정·패치:** 지원되는 NCA 구조에서 제목·아이콘 변경과 패치
+- **작업 안전성:** 취소 처리, 출력 검증, 원본 보호, 충돌 방지와 실패 시 복구
+- **자동업데이트:** GitHub 공식 Release의 버전·매니페스트·SHA-256을 검증한 뒤 업데이트
+
+파일 종류에 따라 지원 범위가 다를 수 있습니다. 알 수 없는 NCA/BKTR 구조는 기존 파일을 보호하기 위해 중단하며, 모든 게임이나 실기와의 호환성을 보장하지는 않습니다.
+
+## 다운로드 및 실행
+
+1. [GitHub Releases](https://github.com/UzuCore/NSRP/releases/latest)에서 `nsrp-win64.zip`을 다운로드한 뒤 원하는 폴더에 압축을 풉니다.
+2. `nsrp.exe`를 실행합니다.
+3. 처리할 파일을 추가하고 기능과 출력 형식을 선택하면 됩니다.
+
+프로그램 제목 표시줄과 정보창에는 **버전과 빌드 커밋**이 표시됩니다. 버전은 `Cargo.toml`에서 관리하고, Git 커밋은 빌드 시 실행파일에 포함됩니다.
+
+업데이트는 **도움말 → 업데이트**에서 확인할 수 있습니다. 공식 GitHub 자산과 해시가 맞지 않으면 설치하지 않으며, 사용자의 설정·키·게임 파일은 업데이트 대상이 아닙니다.
+
+## 소스 구성
 
 ```text
 NSRP/
-├── .github/workflows/windows-build.yml  # opt-in Windows Actions build
-├── src/                                # Rust GUI + processing library
+├── .github/workflows/windows-build.yml  # GitHub Actions 수동 Windows 빌드
+├── src/                                # Rust GUI 및 처리 엔진
 │   ├── formats/                        # PFS0, HFS0, NCA, NCZ, BKTR
-│   ├── ops/                            # conversion, merge, patch, recovery
-│   ├── updater.rs                       # trusted GitHub release/ZIP verification
-│   ├── update_ui.rs                      # menu and progress integration
-│   └── workspace.rs                      # private per-user runtime
-├── ui/                                 # Slint Windows UI and compiled assets
-├── bin/                                # checksum-verified external tool inputs
-├── assets/                             # public app icon
-├── licenses/                           # required third-party notices
-├── scripts/                            # build, package, audit, rollback tests
-├── docs/architecture/                   # architecture overview
-├── Cargo.toml / Cargo.lock              # pinned Rust dependencies
-├── rust-toolchain.toml                  # pinned compiler
-├── build.bat                            # reproducible public source build
-├── LICENSE / THIRD_PARTY_NOTICES.md     # copyright/licensing
+│   ├── ops/                            # 변환, 병합, 패치, 복구
+│   ├── updater.rs                       # GitHub 자산 및 SHA-256 검증
+│   ├── update_ui.rs                      # 업데이트 UI
+│   └── workspace.rs                      # 사용자별 작업 공간
+├── ui/                                 # Slint 인터페이스·이미지 리소스
+├── bin/                                # 체크섬을 검증하는 호환성 도구
+├── assets/                             # 프로그램 아이콘
+├── licenses/                           # 외부 구성 요소 라이선스
+├── scripts/                            # 빌드·패키징·검증·롤백 테스트
+├── docs/architecture/                  # 구조 설명
+├── Cargo.toml / Cargo.lock              # 버전·고정 의존성
+├── rust-toolchain.toml                  # Rust 툴체인
+├── build.bat                            # Windows Release 빌드
+├── LICENSE / THIRD_PARTY_NOTICES.md     # 라이선스 고지
 └── README.md
 ```
 
-The local Windows development workspace may additionally keep private keys,
-test ROMs, generated outputs and archived QA outside this Git repository.
-Those files are not required for a public **source build**, and must never be
-committed. Three legacy read/extract/XCI-layout tools remain as compatibility
-inputs; Program and Control NCA repacking no longer executes a GPL packer.
-See `THIRD_PARTY_NOTICES.md` for attribution and independent-license review.
-The bundled hactool cryptography has an additional Apache-2.0 notice for
-Mbed TLS, retained verbatim in `licenses/mbedtls-Apache-2.0.txt`.
+로컬 개발 환경에는 개인 키, 테스트 게임, 출력물, QA 로그가 별도로 존재할 수 있지만 **공개 Git 저장소에는 등록하지 않습니다**. 공개 소스만으로 빌드할 수 있으며 상위 폴더의 `bin` 또는 `assets`를 요구하지 않습니다.
 
-**GUI attribution:** NSRP chooses Slint 1.17.1's Royalty-free Desktop License
-2.0 and shows the unmodified `AboutSlint` attribution widget from the top
-menu's **Help > About** dialog. The corresponding license is included as
-`licenses/Slint-Royalty-free-2.0.md`; `scripts/check-third-party-attribution.ps1`
-checks both the widget wiring and exact license SHA as a build precondition.
-This application does not distribute the Slint framework independently.
+레거시 읽기·추출·XCI 호환성 작업에는 3개의 외부 도구가 남아 있습니다. 반면 Program/Control NCA 재패키징은 GPL 패커를 실행하지 않고 검증된 Rust 네이티브 코드로 처리합니다. 각 구성 요소의 라이선스는 [외부 라이선스 고지](THIRD_PARTY_NOTICES.md)를 참고하세요.
 
-## Build from the source root
+## 소스에서 빌드
 
-On Windows with Rust/Cargo and PowerShell installed:
+**Windows** 환경에서 Rust/Cargo와 PowerShell이 필요합니다. 소스 루트에서 실행하면 됩니다.
 
 ```cmd
 build.bat
 ```
 
-This validates seven embedded inputs by SHA-256, runs a locked Release build,
-and packages a strictly allowlisted `dist/nsrp-win64.zip`. The self-contained
-source tree does **not** need a parent `bin/` or `assets/` directory.
+스크립트는 내장 입력 7개의 SHA-256을 검증하고, 고정된 의존성으로 Release를 빌드한 뒤 허용된 파일만 `dist/nsrp-win64.zip`으로 패키징합니다.
 
-Run the checks separately:
+개별 검수 명령:
 
 ```cmd
-cargo fmt --all --check
+cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --lib
 cargo test --locked --bin nsrp
 cargo test --locked --bin nsrp stage60_drop_output_state_and_tab_epoch_are_preserved -- --ignored --test-threads=1
 cargo test --locked --bin nsrp stage63_help_about_opens_slint_attribution_dialog -- --ignored --test-threads=1
+cargo test --locked --bin nsrp stage74_title_logo_original_and_replacement_top_edge_clicks_align -- --ignored --test-threads=1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\test-auto-update.ps1 -RunDelayedFailure
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check-third-party-attribution.ps1
 ```
 
-Slint/Winit supports one event-loop instance per test process. The special
-Stage60 GUI test is intentionally run as an isolated test rather than mixed
-into the default Windows GUI regression process.
+Slint/Winit은 프로세스당 GUI 이벤트 루프 하나만 지원하므로, 위에 표시한 격리 GUI 테스트는 일반 GUI 회귀 테스트와 **분리해서 실행**합니다.
 
-## Versions, CI and updates
+## 버전, GitHub Actions 및 업데이트
 
-Version numbers are defined **once** in `Cargo.toml`. Each compiled executable
-also embeds its source Git commit. GitHub Actions runs via **manual
-`workflow_dispatch`**, as in NSL; normal `git push` does not publish a binary.
-The Actions workflow formats/checks/tests, builds `nsrp.exe`, packages and
-verifies the ZIP, tests sandboxed replacement/rollback, and uploads an
-artifact. Public GitHub Release creation requires the separately selected
-`publish_release` checkbox **after third-party licensing review**.
+- 버전 번호는 `Cargo.toml`에서 관리하고 실행파일에는 소스 Git 커밋을 포함합니다.
+- GitHub Actions는 `workflow_dispatch`로 **수동 실행**합니다. `git push`만으로 Release가 게시되지는 않습니다.
+- Windows CI는 코드 포맷·테스트·정적 검사, 실행파일 빌드, ZIP 무결성 확인, 격리된 자동업데이트·롤백 시험을 수행합니다.
+- 공개 Release는 외부 라이선스를 검토한 뒤 `publish_release`를 명시적으로 선택해야 생성됩니다.
+- 배포 태그는 `build-YYYYMMDD-HHMMSS-KST-rN` 형식을 사용합니다. ZIP에는 `nsrp.exe`, 버전·커밋·SHA-256을 기록한 `nsrp-manifest.json`, 필수 라이선스 고지가 들어 있습니다.
 
-**Native-only NCA packaging:** Program patches and Control title/icon edits
-use Rust builders for standard IVFC/PFS0, size changes and verified supported
-BKTR flattening. Unrecognized sparse, compressed or unusual storage forms
-fail closed rather than falling back to `hacpack.exe`; existing output and
-original input remain unchanged. This is a compatibility limitation, not a
-claim of universal NCA support. No GPL executable is bundled in the current
-source or binary, but earlier unpublished local branches and old release
-backups must not be pushed with their history.
+업데이트는 공식 UzuCore/NSRP Release의 커밋을 비교해 다운그레이드를 방지하고, ZIP 안의 허용된 파일과 SHA-256을 검증합니다. NSRP 프로세스가 종료되면 **해당 실행파일 폴더의 `nsrp.exe`와 `nsrp-manifest.json`만** 교체하고, 실패하면 이전 파일을 복원합니다. 사용자 키·설정·게임·샘플 및 알 수 없는 파일은 변경하지 않습니다. ZIP 안의 임의 실행파일이나 설치 스크립트를 실행하지도 않습니다.
 
-Published release tags follow `build-YYYYMMDD-HHMMSS-KST-rN` and contain
-`nsrp-win64.zip` with an `nsrp-manifest.json` (Git commit and SHA-256). The
-Help > Update menu checks the official UzuCore/NSRP GitHub release, compares
-source commits to avoid downgrades, downloads the exact official asset, and
-verifies its allowlisted contents and SHA before requesting installation.
+## 지원 범위와 안전성
 
-The helper waits for the current NSRP process to exit and replaces **only**
-`nsrp.exe` plus `nsrp-manifest.json` in that specific executable's directory.
-Previous files are backed up and restored on failure; user keys, settings,
-games, samples and unknown files are not touched. No arbitrary release EXEs,
-installer scripts or other ZIP contents are executed.
+Program NCA 패치와 Control NCA의 제목·아이콘 변경은 지원하는 IVFC/PFS0 구조를 네이티브 코드로 재생성합니다. 크기 변경과 검증된 BKTR 평탄화도 처리하지만, 알 수 없는 희소·압축·특수 저장 구조는 **안전하게 실패**하도록 설계했습니다. 모든 NCA 구조를 지원한다는 뜻은 아닙니다.
 
-See `BUILD_RELEASE.md` and `docs/architecture/NSRP_MODULES.md` for details.
+본 도구는 **사용 권한을 가진 콘텐츠**를 처리하기 위한 소프트웨어입니다. 실제 `prod.keys`, `title.keys`, 개인 티켓이나 ROM 샘플을 저장소·이슈에 게시하지 마세요. 실기 설치를 위한 서명·권한 검사를 우회하지 않으며, 합성 파일·에뮬레이터 GUI 테스트가 실기 호환성을 입증하지는 않습니다.
 
-## Scope and safety
+## 라이선스
 
-This code is for processing content you have permission to use. Do not
-publish real `prod.keys`, `title.keys`, private tickets or ROM samples.
-The project does not bypass signature/rights checks to install content on
-hardware. Synthetic or emulator GUI tests do not establish real hardware
-compatibility.
+NSRP 자체 소스는 [MIT 라이선스](LICENSE)를 사용하고, 외부 도구와 UI 구성 요소에는 각각 별도의 라이선스가 적용됩니다.
+
+- **Slint 1.17.1:** Royalty-free Desktop License 2.0을 사용합니다. **도움말 → 정보**에 원본 `AboutSlint` 고지 위젯을 표시하며, [라이선스 원문](licenses/Slint-Royalty-free-2.0.md)을 배포에 포함합니다. `scripts/check-third-party-attribution.ps1`에서 고지 연결과 라이선스 SHA를 검수합니다. Slint 프레임워크 자체를 별도로 배포하지 않습니다.
+- **hactool / hacbuild / LibHac:** [외부 라이선스 고지](THIRD_PARTY_NOTICES.md)에서 출처와 적용 라이선스를 확인할 수 있습니다.
+- **Mbed TLS:** hactool의 암호화 구성 요소에 필요한 [Apache-2.0 고지 원문](licenses/mbedtls-Apache-2.0.txt)을 변경 없이 보관합니다.
+
+더 자세한 내용은 [빌드·배포 문서](BUILD_RELEASE.md)와 [NSRP 모듈 구성](docs/architecture/NSRP_MODULES.md)을 참고하세요.

@@ -269,15 +269,19 @@ component StatusProgress inherits Rectangle {
     // text in the same 21px footer row, rather than applying a top offset.
     QtProgressBar { x: 0px; y: (parent.height - 14px) / 2; width: 180px; height: 14px; progress: root.progress; }
 }
-component ResourceLabel inherits HorizontalLayout {
+component ResourceLabel inherits Rectangle {
     in property <string> text;
     in property <int> char-count;
     width: root.text == "" ? 27px : root.char-count * 7px + 20px;
-    height: 16px;
-    vertical-stretch: 0;
-    padding-left: 10px;
-    padding-right: 10px;
+    height: 21px;
+    background: transparent;
     Text {
+        x: 10px;
+        // Consolas draws its glyphs higher than the Korean status font in
+        // the same 21px box; offset the glyph baseline to match visually.
+        y: 2px;
+        width: parent.width - 20px;
+        height: parent.height;
         text: root.text;
         color: #000000;
         font-family: "Consolas";
@@ -1207,8 +1211,9 @@ export component AppWindow inherits Window {
         Rectangle {
             height: 21px; background: #f0f0f0; border-width: 0px;
             HorizontalLayout {
+                height: parent.height;
                 padding-left: 12px; padding-right: 20px; spacing: 6px;
-                Text { text: root.status-text; color: #000000; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { height: 21px; text: root.status-text; color: #000000; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; }
                 StatusProgress { width: 180px; progress: root.progress; }
                 ResourceLabel { text: root.resource-text; char-count: root.resource-char-count; }
             }

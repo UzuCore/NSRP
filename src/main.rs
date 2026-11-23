@@ -2628,6 +2628,50 @@ fn tab_name(tab: i32) -> &'static str {
 }
 
 #[cfg(test)]
+mod stage75_status_footer_tests {
+    // Slint privately nests the footer components, so lock down their shared
+    // sizing contract in addition to the pixel-level Windows screenshot QA.
+    #[test]
+    fn stage75_status_progress_and_cpu_ram_share_21px_center_line() {
+        let ui = include_str!("../ui/main.slint");
+        let resource = ui
+            .split("component ResourceLabel inherits Rectangle {")
+            .nth(1)
+            .expect("ResourceLabel must not use a separately sized HorizontalLayout")
+            .split("component PathBox")
+            .next()
+            .unwrap();
+        assert!(resource.contains("height: 21px;"));
+        assert!(resource.contains("height: parent.height;"));
+        assert!(resource.contains("y: 2px;"));
+        assert!(resource.contains("vertical-alignment: center;"));
+        assert!(!resource.contains("height: 16px;"));
+
+        let progress = ui
+            .split("component StatusProgress inherits Rectangle {")
+            .nth(1)
+            .expect("Missing footer progress component")
+            .split("component ResourceLabel")
+            .next()
+            .unwrap();
+        assert!(progress.contains("height: 21px;"));
+        assert!(progress.contains("y: (parent.height - 14px) / 2;"));
+
+        let footer = ui
+            .split("height: 21px; background: #f0f0f0; border-width: 0px;")
+            .nth(1)
+            .expect("Missing footer row")
+            .split("if root.menu-open")
+            .next()
+            .unwrap();
+        assert!(footer.contains("height: parent.height;"));
+        assert!(footer.contains("Text { height: 21px; text: root.status-text;"));
+        assert!(footer.contains("StatusProgress { width: 180px;"));
+        assert!(footer.contains("ResourceLabel { text: root.resource-text;"));
+    }
+}
+
+#[cfg(test)]
 mod stage73_batch_outcome_tests {
     use super::*;
 
