@@ -8,7 +8,7 @@ use crate::{
     keys::KeySet,
     ops::{
         cnmt::{
-            self, CnmtInfo, ContentMetaType, base_title_id, discover_game_metadata,
+            self, CnmtContent, CnmtInfo, ContentMetaType, base_title_id, discover_game_metadata,
             get_title_from_control_nca, parse_nacp_title, resolve_content_entry,
         },
         compress::{
@@ -98,6 +98,22 @@ struct DirectMergeMember {
 struct AuthenticatedMergeContent {
     sha256: [u8; 32],
     title_id: String,
+}
+
+/// CNMT type 6 identifies delta fragments used while applying an incremental
+/// update. Many valid, distributable full-update NSPs deliberately omit those
+/// fragments while retaining their original signed CNMT. Never try to
+/// materialize absent fragments or rewrite the signed CNMT. When a fragment
+/// *is* present, include it and preserve the existing size/hash checks.
+/// All other content types remain required even if their files are missing.
+fn include_merge_content(content: &CnmtContent, sources: &[SourceInfo]) -> bool {
+    if content.content_type != 6 {
+        return true;
+    }
+    let wanted = format!("{}.nca", content.nca_id);
+    sources
+        .iter()
+        .any(|source| resolve_content_entry(&source.entries, &wanted).is_some())
 }
 
 pub fn merge_packages(
@@ -224,6 +240,16 @@ pub fn merge_packages(
             bail!("작업이 중단되었습니다");
         }
         candidates.sort_by_key(|c| (meta_order(c.cnmt.meta_type), c.cnmt.title_id.clone()));
+        let missing_delta_fragments = candidates
+            .iter()
+            .flat_map(|candidate| &candidate.cnmt.contents)
+            .filter(|content| !include_merge_content(content, &sources))
+            .count();
+        if missing_delta_fragments > 0 {
+            log(format!(
+                "병합: 원본 패키지에 없는 선택적 Delta Fragment {missing_delta_fragments}개를 제외합니다 (실제 게임 NCA는 계속 검증)"
+            ));
+        }
         let group_dir = temp.path().join(format!("group_{group_index}"));
         fs::create_dir_all(&group_dir)?;
 
@@ -360,7 +386,12 @@ pub fn merge_packages(
                 &mut names,
                 cancel,
             )?;
-            for content in &candidate.cnmt.contents {
+            for content in candidate
+                .cnmt
+                .contents
+                .iter()
+                .filter(|content| include_merge_content(content, &sources))
+            {
                 let wanted = format!("{}.nca", content.nca_id);
                 let key = wanted.to_ascii_lowercase();
                 if let Some((prior_hash, prior_size)) = selected_hashes.get(&key) {
@@ -729,7 +760,12 @@ fn plan_direct_xci_members(
                 .with_context(|| format!("병합 필수 CNMT NCA 누락: {name}"))?;
             slot.insert(make_direct_merge_member(name, own, entry, None)?);
         }
-        for content in &candidate.cnmt.contents {
+        for content in candidate
+            .cnmt
+            .contents
+            .iter()
+            .filter(|content| include_merge_content(content, sources))
+        {
             let name = format!("{}.nca", content.nca_id);
             let lower = name.to_ascii_lowercase();
             if let Some(prior) = planned.get(&lower) {
@@ -1266,6 +1302,62 @@ mod tests {
         assert_eq!(MergeFormat::Nsp.output_extension(true), "nsz");
         assert_eq!(MergeFormat::Xci.output_extension(false), "xci");
         assert_eq!(MergeFormat::Xci.output_extension(true), "xcz");
+    }
+
+    #[test]
+    fn stage78_missing_delta_is_optional_but_missing_program_is_not() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let source_path = temp.path().join("source.nsp");
+        fs::write(&source_path, vec![0u8; 0x2000])?;
+        let content = |id: &str, content_type: u8| CnmtContent {
+            hash: [0xAB; 32],
+            nca_id: id.to_owned(),
+            size: 0x400,
+            content_type,
+        };
+        let delta = content("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 6);
+        let program = content("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1);
+        let meta_name = "cccccccccccccccccccccccccccccccc.cnmt.nca";
+        let source = SourceInfo {
+            original: source_path.clone(),
+            path: source_path,
+            entries: vec![ContainerEntry {
+                name: meta_name.to_owned(),
+                offset: 0,
+                size: 0x400,
+            }],
+            cnmts: Vec::new(),
+        };
+        let mut sources = vec![source];
+        assert!(!include_merge_content(&delta, &sources));
+        assert!(include_merge_content(&program, &sources));
+
+        let mut candidate = Candidate {
+            source: 0,
+            cnmt: CnmtInfo {
+                cnmt_nca_name: meta_name.to_owned(),
+                title_id: "0100000000000800".to_owned(),
+                version: 1,
+                meta_type: ContentMetaType::Update,
+                required_system_version: 0,
+                contents: vec![delta.clone()],
+                raw: vec![],
+            },
+        };
+        let preset = include_bytes!("../../bin/game_info_preset.ini");
+        let cancel = AtomicBool::new(false);
+        assert!(plan_direct_xci_members(&[candidate.clone()], &sources, preset, &cancel).is_ok());
+
+        candidate.cnmt.contents.push(program);
+        assert!(plan_direct_xci_members(&[candidate], &sources, preset, &cancel).is_err());
+
+        sources[0].entries.push(ContainerEntry {
+            name: format!("{}.nca", delta.nca_id),
+            offset: 0x400,
+            size: delta.size,
+        });
+        assert!(include_merge_content(&delta, &sources));
+        Ok(())
     }
 
     /// Opt-in regression for a locally supplied ticketless NSZ split. It
