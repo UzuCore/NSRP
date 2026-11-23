@@ -109,7 +109,7 @@ jobs:
           $tag = "build-$date-KST-r${{ github.run_number }}"
           $commit = $env:GITHUB_SHA.ToLowerInvariant()
           $short = $commit.Substring(0, 7)
-          $notes = "NSRP Windows x64 build`nVersion: $((Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)' | Select-Object -First 1).Matches.Groups[1].Value)`nCommit: $commit`nReleased: $($kst.ToString('yyyy-MM-dd HH:mm:ss')) KST`n`nOnly nsrp.exe and the verified manifest are applied during automatic updates. Existing game data, keys and settings are never included in this ZIP. Native Program/Control NCA repacking does not ship the former GPL packer. Review THIRD_PARTY_NOTICES.md for the remaining independent tool licenses."
+          $notes = "NSRP Windows x64 build`nCommit: $commit`nReleased: $($kst.ToString('yyyy-MM-dd HH:mm:ss')) KST`n`nOnly nsrp.exe and the verified manifest are applied during automatic updates. Existing game data, keys and settings are never included in this ZIP. Native Program/Control NCA repacking does not ship the former GPL packer. Review THIRD_PARTY_NOTICES.md for the remaining independent tool licenses."
           & gh release create $tag 'dist/nsrp-win64.zip' `
             --repo $env:GITHUB_REPOSITORY `
             --target $commit `

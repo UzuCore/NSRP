@@ -4,7 +4,7 @@
 
 > **주의:** 저장소와 배포 파일에는 게임 이미지, 콘솔 키(`prod.keys`, `title.keys`), 티켓, 사용자 데이터베이스가 포함되지 않습니다. 사용 권한이 있는 콘텐츠만 처리해야 합니다.
 
-[최신 버전 다운로드](https://github.com/UzuCore/NSRP/releases/latest) · [빌드 및 배포 안내](BUILD_RELEASE.md) · [모듈 구조](docs/architecture/NSRP_MODULES.md)
+[최신 빌드 다운로드](https://github.com/UzuCore/NSRP/releases/latest) · [빌드 및 배포 안내](BUILD_RELEASE.md) · [모듈 구조](docs/architecture/NSRP_MODULES.md)
 
 ## 주요 기능
 
@@ -14,7 +14,7 @@
 - **타이틀 수정·패치:** 지원되는 NCA 구조에서 제목·아이콘 변경과 패치
 - **한글패치 입력:** RomFS·ExeFS 폴더와 ZIP·7z 압축파일(암호화 7z 포함)을 파일 교체 패치로 적용합니다. xdelta·IPS는 지원하지 않습니다.
 - **작업 안전성:** 취소 처리, 출력 검증, 원본 보호, 충돌 방지와 실패 시 복구
-- **자동업데이트:** GitHub 공식 Release의 버전·매니페스트·SHA-256을 검증한 뒤 업데이트
+- **자동업데이트:** GitHub 공식 Release의 Git 커밋·매니페스트·SHA-256을 검증한 뒤 업데이트
 
 파일 종류에 따라 지원 범위가 다를 수 있습니다. 알 수 없는 NCA/BKTR 구조는 기존 파일을 보호하기 위해 중단하며, 모든 게임이나 실기와의 호환성을 보장하지는 않습니다.
 
@@ -24,7 +24,7 @@
 2. `nsrp.exe`를 실행합니다.
 3. 처리할 파일을 추가하고 기능과 출력 형식을 선택하면 됩니다.
 
-프로그램 제목 표시줄과 정보창에는 **버전과 빌드 커밋**이 표시됩니다. 버전은 `Cargo.toml`에서 관리하고, Git 커밋은 빌드 시 실행파일에 포함됩니다.
+NSL과 동일하게 프로그램 제목 표시줄에는 **`NSRP  <커밋 앞 7자리>`**만 표시됩니다. 정보창과 업데이트 확인창에도 커밋을 사용하며, GitHub Release 제목 역시 **`NSRP <커밋 앞 7자리> (날짜 KST)`** 형식입니다. 전체 40자리 커밋은 정보창과 배포 매니페스트에 보존합니다. `Cargo.toml`의 숫자 버전은 Rust 내부 패키지·기존 자동업데이트 호환성용으로만 유지하며 사용자에게 버전으로 표시하지 않습니다.
 
 업데이트는 **도움말 → 업데이트**에서 확인할 수 있습니다. 공식 GitHub 자산과 해시가 맞지 않으면 설치하지 않으며, 사용자의 설정·키·게임 파일은 업데이트 대상이 아닙니다.
 
@@ -45,7 +45,7 @@ NSRP/
 ├── licenses/                           # 외부 구성 요소 라이선스
 ├── scripts/                            # 빌드·패키징·검증·롤백 테스트
 ├── docs/architecture/                  # 구조 설명
-├── Cargo.toml / Cargo.lock              # 버전·고정 의존성
+├── Cargo.toml / Cargo.lock              # 내부 패키지 메타데이터·고정 의존성
 ├── rust-toolchain.toml                  # Rust 툴체인
 ├── build.bat                            # Windows Release 빌드
 ├── LICENSE / THIRD_PARTY_NOTICES.md     # 라이선스 고지
@@ -82,13 +82,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\check-third-part
 
 Slint/Winit은 프로세스당 GUI 이벤트 루프 하나만 지원하므로, 위에 표시한 격리 GUI 테스트는 일반 GUI 회귀 테스트와 **분리해서 실행**합니다.
 
-## 버전, GitHub Actions 및 업데이트
+## 커밋 버전, GitHub Actions 및 업데이트
 
-- 버전 번호는 `Cargo.toml`에서 관리하고 실행파일에는 소스 Git 커밋을 포함합니다.
+- 표시용 버전은 **Git 커밋 앞 7자리**입니다. 실행파일에는 전체 40자리 소스 커밋이 포함됩니다.
 - GitHub Actions는 `workflow_dispatch`로 **수동 실행**합니다. `git push`만으로 Release가 게시되지는 않습니다.
 - Windows CI는 코드 포맷·테스트·정적 검사, 실행파일 빌드, ZIP 무결성 확인, 격리된 자동업데이트·롤백 시험을 수행합니다.
 - 공개 Release는 외부 라이선스를 검토한 뒤 `publish_release`를 명시적으로 선택해야 생성됩니다.
-- 배포 태그는 `build-YYYYMMDD-HHMMSS-KST-rN` 형식을 사용합니다. ZIP에는 `nsrp.exe`, 버전·커밋·SHA-256을 기록한 `nsrp-manifest.json`, 필수 라이선스 고지가 들어 있습니다.
+- GitHub Release **제목과 본문은 커밋 기준**이며 숫자 버전을 표시하지 않습니다. NSL과 동일하게 고유 다운로드 식별자로 `build-YYYYMMDD-HHMMSS-KST-rN` 태그를 유지합니다. ZIP에는 `nsrp.exe`, 내부 호환성 메타데이터·전체 커밋·SHA-256을 기록한 `nsrp-manifest.json`, 필수 라이선스 고지가 들어 있습니다.
 
 업데이트는 공식 UzuCore/NSRP Release의 커밋을 비교해 다운그레이드를 방지하고, ZIP 안의 허용된 파일과 SHA-256을 검증합니다. NSRP 프로세스가 종료되면 **해당 실행파일 폴더의 `nsrp.exe`와 `nsrp-manifest.json`만** 교체하고, 실패하면 이전 파일을 복원합니다. 사용자 키·설정·게임·샘플 및 알 수 없는 파일은 변경하지 않습니다. ZIP 안의 임의 실행파일이나 설치 스크립트를 실행하지도 않습니다.
 

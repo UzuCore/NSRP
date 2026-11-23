@@ -28,11 +28,7 @@ pub fn short_commit(value: &str) -> &str {
 }
 
 pub fn current_version() -> String {
-    format!(
-        "{} ({})",
-        env!("CARGO_PKG_VERSION"),
-        short_commit(build_commit())
-    )
+    short_commit(build_commit()).to_owned()
 }
 
 #[derive(Clone, Debug)]
@@ -204,7 +200,7 @@ pub fn check_latest() -> Result<UpdateCheck> {
         "신뢰할 수 없는 릴리스 파일 URL입니다"
     );
     Ok(UpdateCheck::Available(UpdateInfo {
-        latest: format!("{} ({})", release.tag_name, short_commit(&commit)),
+        latest: short_commit(&commit).to_owned(),
         commit,
         url,
         notes: release.body,
@@ -509,10 +505,13 @@ mod tests {
     }
 
     #[test]
-    fn build_version_and_commit_are_embedded() {
+    fn stage79_build_revision_is_the_only_displayed_version() {
         assert!(!env!("CARGO_PKG_VERSION").is_empty());
         assert!(valid_commit(build_commit()));
         assert_eq!(short_commit(build_commit()).len(), 7);
+        assert_eq!(current_version(), short_commit(build_commit()));
+        assert!(!current_version().contains('.'));
+        assert!(!current_version().contains('v'));
     }
 
     #[test]

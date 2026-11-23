@@ -53,8 +53,6 @@ use std::{
 
 slint::include_modules!();
 
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeDropSource {
@@ -486,7 +484,7 @@ fn force_light_title_bar() {
     };
 
     unsafe {
-        let caption = format!("NSRP v{}", updater::current_version());
+        let caption = format!("NSRP  {}", updater::current_version());
         let wide_caption = caption
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -950,7 +948,8 @@ fn wire_about_dialog(window: &AppWindow, workspace_root: &Path) {
         if let Some(ui) = about_window.upgrade() {
             ui.set_about_details(
                 format!(
-                    "NSRP v{APP_VERSION}\n빌드 커밋: {}\n\n작업 디렉터리: {}",
+                    "NSRP {}\n빌드 커밋: {}\n\n작업 디렉터리: {}",
+                    updater::current_version(),
                     updater::build_commit(),
                     about_workspace.display()
                 )
@@ -2628,6 +2627,45 @@ fn tab_name(tab: i32) -> &'static str {
 }
 
 #[cfg(test)]
+mod stage79_commit_display_tests {
+    #[test]
+    fn stage79_window_title_about_and_updates_use_only_short_commit() {
+        let ui = include_str!("../ui/main.slint");
+        let main = include_str!("main.rs");
+        let update = include_str!("update_ui.rs");
+        let short = crate::updater::current_version();
+        assert_eq!(
+            short,
+            crate::updater::short_commit(crate::updater::build_commit())
+        );
+        assert_eq!(short.len(), 7);
+        assert!(ui.contains("title: \"NSRP  \" + root.app-version;"));
+        assert!(main.contains("format!(\"NSRP  {}\", updater::current_version())"));
+        assert!(main.contains("\"NSRP {}\\n빌드 커밋: {}"));
+        assert!(update.contains("현재 커밋: {}"));
+        assert!(update.contains("최신 커밋: {}"));
+        assert!(!ui.contains("title: \"NSRP v"));
+        // Exclude this test module's own fixture strings from the source check.
+        let production_main = main
+            .split("mod stage79_commit_display_tests")
+            .next()
+            .unwrap();
+        assert!(!production_main.contains("NSRP v"));
+    }
+
+    #[test]
+    fn stage79_github_release_uses_commit_instead_of_package_version() {
+        let workflow = include_str!("../.github/workflows/windows-build.yml");
+        assert!(workflow.contains("$short = $commit.Substring(0, 7)"));
+        assert!(workflow.contains("--title \"NSRP $short"));
+        assert!(workflow.contains("$notes = \"NSRP Windows x64 build`nCommit: $commit"));
+        assert!(!workflow.contains("`nVersion:"));
+        // Match NSL's dated release-tag scheme for updater compatibility.
+        assert!(workflow.contains("$tag = \"build-$date-KST-r"));
+    }
+}
+
+#[cfg(test)]
 mod stage77_form_overflow_tests {
     // Guard the scrolling and stable-frame behavior at the point where the
     // Slint view declarations are compiled, without depending on user ROMs.
@@ -3115,7 +3153,9 @@ mod about_ui_tests {
                 "Help > About must open at scale {factor}"
             );
             let details = ui.get_about_details().to_string();
-            assert!(details.contains(&format!("NSRP v{APP_VERSION}")));
+            assert!(details.contains(&format!("NSRP {}", updater::current_version())));
+            assert!(details.contains(updater::build_commit()));
+            assert!(!details.contains(env!("CARGO_PKG_VERSION")));
             assert!(details.contains(&workspace.to_string_lossy().to_string()));
 
             let click = |position: slint::LogicalPosition| {

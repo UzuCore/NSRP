@@ -1,22 +1,30 @@
-# NSRP: release, versioning and updater verification
+# NSRP: commit-based releases and updater verification
 
 This is the self-contained public Git source directory. On the Windows
 development machine the source and local deployment root are both
 `D:\NSW.dev\NSRP` (no `rust_port` subdirectory). A public GitHub checkout
 does not require private keys or game samples.
 
-## Version policy
+## Commit display policy (same as NSL)
 
-1. Change `version` **only** in `Cargo.toml` for a semantic release.
+1. The public version is the **seven-character Git commit**. All visible
+   Windows UI and GitHub Release notes use this revision, never a semantic
+   version number.
+   Retain `Cargo.toml`'s semantic version as an *internal* crate/package
+   compatibility field. Existing release manifests continue to include it
+   so older updaters can verify and install new releases without migrations.
 2. `build.rs` embeds the 40-character Git HEAD (`GITHUB_SHA` on Actions)
-   and the commit timestamp in each executable. The title/About menu uses
-   `v<crate-version> (<seven-character-commit>)`.
+   and the commit timestamp in each executable. The window title is
+   `NSRP  <seven-character-commit>`; About shows the abbreviated and full
+   commit; Windows executable version **strings** also use the abbreviated
+   commit. Numeric Windows version fields are reserved compatibility zeros.
 3. Commit all sources **before** the final Release build so the embedded
    revision matches Git HEAD; re-run the build after a new commit.
-4. Manual GitHub Actions releases use
-   `build-YYYYMMDD-HHMMSS-KST-r<run-number>` tags. No auto-release on push.
+4. Manual GitHub Actions releases have commit-based **titles and notes**;
+   like NSL they use `build-YYYYMMDD-HHMMSS-KST-r<run-number>` as stable,
+   unique technical download tags. No auto-release on push.
 5. The package `nsrp-win64.zip` contains `nsrp.exe`,
-   `nsrp-manifest.json` (version, full commit and SHA-256), the project
+   `nsrp-manifest.json` (internal package metadata, full commit and SHA-256), the project
    license and reviewed third-party license notices.
 
 ## Local build

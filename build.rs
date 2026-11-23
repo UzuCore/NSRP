@@ -32,19 +32,13 @@ fn main() {
     {
         let mut resource = winresource::WindowsResource::new();
         resource.set_icon("assets/icon.ico");
-        let version = env::var("CARGO_PKG_VERSION").expect("Cargo package version missing");
-        let components = version
-            .split('.')
-            .map(|part| part.parse::<u16>().expect("expected major.minor.patch"))
-            .collect::<Vec<_>>();
-        assert_eq!(components.len(), 3, "expected major.minor.patch");
-        let packed = (u64::from(components[0]) << 48)
-            | (u64::from(components[1]) << 32)
-            | (u64::from(components[2]) << 16);
-        resource.set_version_info(winresource::VersionInfo::FILEVERSION, packed);
-        resource.set_version_info(winresource::VersionInfo::PRODUCTVERSION, packed);
-        resource.set("FileVersion", &version);
-        resource.set("ProductVersion", &version);
+        // Keep Cargo's semantic version for Rust/package compatibility only.
+        // Windows Explorer displays the same commit revision as the GUI and NSL.
+        let short_commit = commit.get(..7).unwrap_or(&commit);
+        resource.set_version_info(winresource::VersionInfo::FILEVERSION, 0);
+        resource.set_version_info(winresource::VersionInfo::PRODUCTVERSION, 0);
+        resource.set("FileVersion", short_commit);
+        resource.set("ProductVersion", short_commit);
         resource.set("FileDescription", "NSRP Nintendo Switch ROM Processor");
         resource.set("ProductName", "NSRP");
         resource

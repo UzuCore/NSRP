@@ -66,11 +66,11 @@ pub(super) fn wire_updates(
                     }
                     Ok(updater::UpdateCheck::Current) => {
                         append_log_direct_with_tone(&ui, "이미 최신 공개 빌드입니다", 4);
-                        ui.set_status_text("이미 최신 버전입니다".into());
+                        ui.set_status_text("이미 최신 빌드입니다".into());
                         popup_ui::notice(
                             &ui,
                             "업데이트",
-                            format!("현재 버전: {}\n최신 공개 빌드입니다.", updater::current_version()),
+                            format!("현재 커밋: {}\n최신 공개 빌드입니다.", updater::current_version()),
                         );
                         updating_check.store(false, Ordering::SeqCst);
                         return;
@@ -83,7 +83,7 @@ pub(super) fn wire_updates(
                     &ui,
                     "공식 NSRP 업데이트",
                     format!(
-                        "현재: {}\n새 빌드: {}\n\n공식 GitHub ZIP을 확인·다운로드하시겠습니까?\n\n{}",
+                        "현재 커밋: {}\n최신 커밋: {}\n\n공식 GitHub ZIP을 확인·다운로드하시겠습니까?\n\n{}",
                         updater::current_version(),
                         info.latest,
                         brief_notes,
