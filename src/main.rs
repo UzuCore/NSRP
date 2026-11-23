@@ -2650,6 +2650,72 @@ mod stage73_batch_outcome_tests {
 #[cfg(all(test, windows))]
 mod about_ui_tests {
     use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]
+    fn stage74_title_logo_original_and_replacement_top_edge_clicks_align() -> Result<()> {
+        let ui = AppWindow::new()?;
+        let fixture = tempfile::tempdir()?;
+        let input = fixture.path().join("title-preview.nsp");
+        fs::write(&input, b"UI fixture only")?;
+        sync_input_ui(&ui, &[input]);
+
+        let clicks = Rc::new(Cell::new(0usize));
+        let captured = clicks.clone();
+        ui.on_choose_title_icon(move || captured.set(captured.get() + 1));
+
+        for scale in [1.0_f32, 1.25, 1.5] {
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+                    scale_factor: scale,
+                });
+            ui.window()
+                .dispatch_event(slint::platform::WindowEvent::Resized {
+                    size: slint::LogicalSize::new(1400.0, 760.0),
+                });
+            ui.set_selected_tab(1);
+            ui.set_title_analyzing(false);
+            ui.set_busy(false);
+            ui.set_title_has_new_image(true);
+
+            let click = |x, y| {
+                let position = slint::LogicalPosition::new(x, y);
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerMoved { position });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+                ui.window()
+                    .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                        position,
+                        button: slint::platform::PointerEventButton::Left,
+                    });
+            };
+            // The title tab begins at window y=67. Both 175px previews now
+            // start at local y=218, so they must accept clicks at window
+            // y=291; the old destination started 12px lower and missed it.
+            let initial = clicks.get();
+            click(105.0, 291.0); // Source preview, near top edge.
+            click(320.0, 291.0); // Destination preview, same top edge.
+            click(105.0, 370.0); // Source preview, middle.
+            click(320.0, 370.0); // Destination preview, middle.
+            assert_eq!(
+                clicks.get(),
+                initial + 4,
+                "Original/replacement logo click regions differ at {scale}x"
+            );
+            click(230.0, 370.0); // Arrow must not open a file chooser.
+            assert_eq!(
+                clicks.get(),
+                initial + 4,
+                "Arrow should not behave like a logo preview at {scale}x"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "Run alone: Slint/Winit GUI backend allows one event-loop instance per process"]

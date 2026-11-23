@@ -68,6 +68,10 @@ jobs:
         shell: cmd
         run: cargo test --locked --bin nsrp stage72_merge_format_radio_and_compression_checkbox_pointer_regression -- --ignored --test-threads=1
 
+      - name: Verify title logo previews share aligned click regions
+        shell: cmd
+        run: cargo test --locked --bin nsrp stage74_title_logo_original_and_replacement_top_edge_clicks_align -- --ignored --test-threads=1
+
       - name: Check Rust lints
         shell: cmd
         run: cargo clippy --locked --all-targets -- -D warnings
