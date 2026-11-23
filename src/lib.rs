@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
+mod atomic_file;
 pub mod config;
 pub mod crypto;
 mod disk_space;

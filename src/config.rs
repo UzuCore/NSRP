@@ -1,3 +1,4 @@
+use crate::atomic_file::write_atomic;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
@@ -105,14 +106,69 @@ impl AppConfig {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let parent = path.parent().context("설정 파일 상위 경로가 없습니다")?;
-        fs::create_dir_all(parent)?;
-        let tmp = path.with_extension("json.tmp");
-        let text = serde_json::to_string_pretty(self)?;
-        fs::write(&tmp, format!("{text}\n"))?;
-        if path.exists() {
-            let _ = fs::remove_file(path);
+        // A malformed existing configuration must not be replaced by
+        // defaults silently loaded after a parse error.
+        if path.is_file() {
+            let existing = fs::read_to_string(path).with_context(|| {
+                format!("기존 설정 파일을 읽을 수 없습니다: {}", path.display())
+            })?;
+            serde_json::from_str::<Self>(&existing).with_context(|| {
+                format!(
+                    "기존 설정 파일에 오류가 있어 덮어쓰지 않습니다: {}",
+                    path.display()
+                )
+            })?;
         }
-        fs::rename(&tmp, path).with_context(|| format!("설정 저장 실패: {}", path.display()))
+        let text = serde_json::to_string_pretty(self)?;
+        write_atomic(path, format!("{text}\n").as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod stage73_config_tests {
+    use super::*;
+
+    #[test]
+    fn stage73_multiple_settings_saves_do_not_create_shared_tmp_collisions() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("nsrp_config.json");
+        let mut handles = Vec::new();
+        for id in 0..6 {
+            let path = path.clone();
+            handles.push(std::thread::spawn(move || -> Result<()> {
+                for turn in 0..12 {
+                    let mut config = AppConfig::default();
+                    config.main.last_tab = (id + turn) % 9;
+                    config.save(&path)?;
+                }
+                Ok(())
+            }));
+        }
+        for handle in handles {
+            handle.join().expect("settings test worker panicked")?;
+        }
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        assert!(value.get("main").is_some());
+        assert_eq!(
+            fs::read_dir(temp.path())?.count(),
+            1,
+            "Concurrent saves must not leave json.tmp or other fragments"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stage73_corrupt_existing_settings_cannot_be_replaced_by_defaults() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("nsrp_config.json");
+        let original = b"{incomplete settings";
+        fs::write(&path, original)?;
+        let defaults_after_bad_json = AppConfig::load(&path);
+        assert!(
+            defaults_after_bad_json.save(&path).is_err(),
+            "A parse error must not destroy the user's saved settings"
+        );
+        assert_eq!(fs::read(&path)?, original);
+        Ok(())
     }
 }

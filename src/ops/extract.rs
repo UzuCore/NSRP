@@ -1,4 +1,5 @@
 use crate::{
+    atomic_file::write_atomic,
     formats::ncz_stream::decompress_ncz_region_to_nca,
     keys::{KeySet, parse_key_file, sanitize_title_keys_file},
     ops::{
@@ -466,7 +467,12 @@ fn merge_ticket_title_keys(
 ) -> Result<usize> {
     let _ = sanitize_title_keys_file(title_keys_path)?;
     let mut keys = if title_keys_path.is_file() {
-        parse_key_file(title_keys_path, true).unwrap_or_default()
+        parse_key_file(title_keys_path, true).with_context(|| {
+            format!(
+                "기존 title.keys를 해석하지 못해 자동 병합을 중단합니다: {}",
+                title_keys_path.display()
+            )
+        })?
     } else {
         std::collections::HashMap::new()
     };
@@ -514,7 +520,7 @@ fn merge_ticket_title_keys(
             text.push_str(&format!("{rights_id} = {}\n", hex::encode_upper(key)));
         }
     }
-    fs::write(title_keys_path, text)
+    write_atomic(title_keys_path, text.as_bytes())
         .with_context(|| format!("title.keys 저장 실패: {}", title_keys_path.display()))?;
     Ok(added)
 }
@@ -527,7 +533,14 @@ fn copy_region<R: Read + Seek>(
     cancel: &AtomicBool,
 ) -> Result<()> {
     reader.seek(SeekFrom::Start(offset))?;
-    let mut out = BufWriter::with_capacity(8 * 1024 * 1024, File::create(output)?);
+    let parent = output
+        .parent()
+        .context("추출 파일의 상위 폴더가 없습니다")?;
+    fs::create_dir_all(parent)?;
+    let mut staged = tempfile::Builder::new()
+        .prefix("nsrp_extract_file_")
+        .tempfile_in(parent)?;
+    let mut out = BufWriter::with_capacity(8 * 1024 * 1024, staged.as_file_mut());
     let mut left = size;
     let mut buf = vec![0u8; 8 * 1024 * 1024];
     while left > 0 {
@@ -540,6 +553,17 @@ fn copy_region<R: Read + Seek>(
         left -= take as u64;
     }
     out.flush()?;
+    drop(out);
+    if cancel.load(Ordering::Relaxed) {
+        bail!("작업이 중단되었습니다");
+    }
+    if staged.as_file().metadata()?.len() != size {
+        bail!("추출된 파일 크기가 예상과 다릅니다");
+    }
+    staged
+        .persist(output)
+        .map_err(|err| err.error)
+        .with_context(|| format!("추출 파일 확정 실패: {}", output.display()))?;
     Ok(())
 }
 
@@ -581,6 +605,17 @@ fn replace_extension(name: &str, ext: &str) -> String {
 mod tests {
     use super::*;
     use crate::formats::pfs0::build_from_paths;
+
+    #[test]
+    fn stage73_truncated_extract_preserves_completed_destination() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let dest = root.path().join("existing.nca");
+        fs::write(&dest, b"verified old complete NCA")?;
+        let mut source = std::io::Cursor::new(b"short".to_vec());
+        assert!(copy_region(&mut source, 0, 500, &dest, &AtomicBool::new(false),).is_err());
+        assert_eq!(fs::read(&dest)?, b"verified old complete NCA");
+        Ok(())
+    }
 
     #[test]
     #[ignore = "Requires local authorized NSZ fixture and empty QA extraction directory"]

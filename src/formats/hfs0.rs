@@ -419,10 +419,7 @@ fn align_up(v: u64, a: u64) -> u64 {
 }
 
 fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
-        bail!("안전하지 않은 HFS0 파일명: {name:?}");
-    }
-    Ok(())
+    super::name::validate_container_filename(name)
 }
 
 #[cfg(test)]

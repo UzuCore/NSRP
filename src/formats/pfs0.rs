@@ -405,10 +405,7 @@ pub fn build_from_sources(
 }
 
 fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
-        bail!("안전하지 않은 컨테이너 파일명: {name:?}");
-    }
-    Ok(())
+    super::name::validate_container_filename(name)
 }
 
 fn copy_bounded<R: Read, W: Write>(

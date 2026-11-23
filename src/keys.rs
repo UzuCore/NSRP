@@ -1,4 +1,4 @@
-use crate::formats::pfs0::Pfs0Index;
+use crate::{atomic_file::write_atomic, formats::pfs0::Pfs0Index};
 use anyhow::{Context, Result};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -175,7 +175,7 @@ pub fn sanitize_title_keys_file(path: &Path) -> Result<usize> {
         output.push_str(&format!("{} = {}\n", name.to_ascii_uppercase(), canonical));
     }
     if changed > 0 {
-        fs::write(path, output)
+        write_atomic(path, output.as_bytes())
             .with_context(|| format!("title.keys 정리 실패: {}", path.display()))?;
     }
     Ok(changed)
@@ -188,7 +188,12 @@ pub fn merge_ticket_keys_from_nsp_file(nsp: &Path, title_keys_path: &Path) -> Re
     let _ = sanitize_title_keys_file(title_keys_path)?;
     let index = Pfs0Index::parse(nsp)?;
     let mut existing = if title_keys_path.is_file() {
-        parse_key_file(title_keys_path, true).unwrap_or_default()
+        parse_key_file(title_keys_path, true).with_context(|| {
+            format!(
+                "기존 title.keys를 해석하지 못해 자동 병합을 중단합니다: {}",
+                title_keys_path.display()
+            )
+        })?
     } else {
         HashMap::new()
     };
@@ -239,7 +244,7 @@ pub fn merge_ticket_keys_from_nsp_file(nsp: &Path, title_keys_path: &Path) -> Re
             text.push_str(&format!("{key_id} = {}\n", hex::encode_upper(key)));
         }
     }
-    fs::write(title_keys_path, text)
+    write_atomic(title_keys_path, text.as_bytes())
         .with_context(|| format!("title.keys 저장 실패: {}", title_keys_path.display()))?;
     Ok(new_ticket_count)
 }

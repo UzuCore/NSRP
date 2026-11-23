@@ -1,4 +1,5 @@
 use crate::{
+    atomic_file::publish_generated_file,
     formats::{ncz_stream::decompress_ncz_region_to_nca, pfs0::build_from_streams},
     keys::KeySet,
     ops::{
@@ -304,10 +305,7 @@ pub fn convert(
                 publish_verified_xci(&intermediate, &final_path, cancel)?;
             }
         } else {
-            if final_path.exists() {
-                fs::remove_file(&final_path)?;
-            }
-            fs_ext::persist(&intermediate, &final_path)?;
+            publish_generated_file(&intermediate, &final_path, cancel)?;
         }
         progress(1.0);
         Ok(final_path)
@@ -548,21 +546,6 @@ fn replace_extension(name: &str, ext: &str) -> String {
     match name.rsplit_once('.') {
         Some((stem, _)) => format!("{stem}.{ext}"),
         None => format!("{name}.{ext}"),
-    }
-}
-
-mod fs_ext {
-    use anyhow::Result;
-    use std::{fs, path::Path};
-    pub fn persist(src: &Path, dst: &Path) -> Result<()> {
-        match fs::rename(src, dst) {
-            Ok(()) => Ok(()),
-            Err(_rename_error) => {
-                fs::copy(src, dst)?;
-                fs::remove_file(src)?;
-                Ok(())
-            }
-        }
     }
 }
 

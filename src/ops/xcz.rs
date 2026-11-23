@@ -285,12 +285,15 @@ fn transform_xci_staged(
     hfs0::build_from_paths_layout(&root_paths, &new_root, 0x200, 1)?;
     let new_root_size = fs::metadata(&new_root)?.len();
     let root_hash = sha256_file(&new_root)?;
-    let partial = output.with_extension(format!(
-        "{}.partial",
-        output.extension().and_then(|s| s.to_str()).unwrap_or("xci")
-    ));
+    // The opt-in compatibility writer must observe the same atomic-output
+    // guarantees as the default streaming writer. A fixed .partial name
+    // collides with concurrent jobs and deleting an existing result before
+    // rename could lose the user's prior file if rename fails.
+    let mut staged = tempfile::Builder::new()
+        .prefix("nsrp_xcz_compat_")
+        .tempfile_in(out_parent)?;
     {
-        let mut out = BufWriter::with_capacity(8 * 1024 * 1024, File::create(&partial)?);
+        let mut out = BufWriter::with_capacity(8 * 1024 * 1024, staged.as_file_mut());
         source.seek(SeekFrom::Start(0))?;
         copy_exact(&mut source, &mut out, root.base, cancel)?;
         let mut root_file = BufReader::with_capacity(8 * 1024 * 1024, File::open(&new_root)?);
@@ -298,10 +301,7 @@ fn transform_xci_staged(
         out.flush()?;
     }
     if let Some(base) = header_base {
-        let mut out = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&partial)?;
+        let out = staged.as_file_mut();
         out.seek(SeekFrom::Start(base + 0x138))?;
         out.write_u64::<LittleEndian>(new_root_size)?;
         out.seek(SeekFrom::Start(base + 0x118))?;
@@ -311,10 +311,14 @@ fn transform_xci_staged(
         out.write_all(&root_hash)?;
         out.flush()?;
     }
-    if output.exists() {
-        fs::remove_file(output)?;
+    if cancel.load(Ordering::Relaxed) {
+        bail!("작업이 중단되었습니다");
     }
-    fs::rename(&partial, output)?;
+    staged.as_file_mut().sync_all()?;
+    staged
+        .persist(output)
+        .map_err(|err| err.error)
+        .with_context(|| format!("XCZ 호환 출력 확정 실패: {}", output.display()))?;
     stats.output_size = fs::metadata(output)?.len();
     progress(1.0);
     Ok(stats)

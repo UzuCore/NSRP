@@ -1621,7 +1621,7 @@ fn finalize_same_format(
     match original_ext {
         "nsp" => {
             let out = output_dir.join(format!("{basename}.nsp"));
-            move_file(nsp, &out)?;
+            move_file(nsp, &out, cancel)?;
             Ok(out)
         }
         "nsz" => {
@@ -1668,18 +1668,8 @@ fn finalize_same_format(
     }
 }
 
-fn move_file(src: &Path, dst: &Path) -> Result<()> {
-    if dst.exists() {
-        fs::remove_file(dst)?;
-    }
-    match fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            fs::copy(src, dst)?;
-            fs::remove_file(src)?;
-            Ok(())
-        }
-    }
+fn move_file(src: &Path, dst: &Path, cancel: &AtomicBool) -> Result<()> {
+    crate::atomic_file::publish_generated_file(src, dst, cancel)
 }
 
 #[cfg(test)]

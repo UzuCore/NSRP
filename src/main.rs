@@ -271,6 +271,16 @@ fn main() -> Result<()> {
     window.set_log_text(SharedString::new());
     window.set_log_rows(ModelRc::new(VecModel::<LogRow>::default()));
     append_log_direct_with_tone(&window, "NSRP 준비 완료", 1);
+    if paths.config_path.is_file()
+        && let Ok(text) = fs::read_to_string(&paths.config_path)
+        && serde_json::from_str::<AppConfig>(&text).is_err()
+    {
+        append_log_direct_with_tone(
+            &window,
+            "[경고] 기존 설정 파일의 JSON 형식이 잘못되었습니다. 복구 전까지 자동 덮어쓰기를 차단합니다.",
+            2,
+        );
+    }
     append_log_direct_with_tone(
         &window,
         &format!("  └ 작업 영역: {}", paths.workspace_root.display()),
@@ -1887,13 +1897,16 @@ fn run_operation(
         }
         3 => unreachable!("분석 탭 검사는 상단 fast path에서 처리됩니다"),
         4 => {
-            let target = if request.target_format.eq_ignore_ascii_case("XCI") {
+            let target = if request.target_format.eq_ignore_ascii_case("NSP") {
+                TargetFormat::Nsp
+            } else if request.target_format.eq_ignore_ascii_case("XCI") {
                 TargetFormat::Xci
             } else {
-                TargetFormat::Nsp
+                bail!("지원하지 않는 변환 출력 포맷: {}", request.target_format);
             };
             let count = request.inputs.len() as f32;
             let mut outputs = Vec::new();
+            let mut failed = 0usize;
             for (i, input) in request.inputs.iter().enumerate() {
                 let item_output_dir = per_input_output_dir(&request, input);
                 let result = convert::convert(
@@ -1915,15 +1928,18 @@ fn run_operation(
                     Ok(out) => outputs.push(out),
                     Err(err) if cancel.load(Ordering::Relaxed) => return Err(err),
                     Err(err) => {
+                        failed += 1;
                         log(format!("  └ [실패] {err:#}"));
                         progress((i + 1) as f32 / count);
                     }
                 }
             }
-            Ok(format!("변환 완료: {}개 파일", outputs.len()))
+            finish_batch("변환", outputs.len(), failed)
         }
         5 => {
             let count = request.inputs.len() as f32;
+            let mut succeeded = 0usize;
+            let mut failed = 0usize;
             for (i, input) in request.inputs.iter().enumerate() {
                 let item_output_dir = per_input_output_dir(&request, input);
                 let ext = extension(input);
@@ -1976,6 +1992,7 @@ fn run_operation(
                 };
                 match result {
                     Ok(()) => {
+                        succeeded += 1;
                         if request.remove_source
                             && input.exists()
                             && let Err(err) = fs::remove_file(input)
@@ -1991,6 +2008,7 @@ fn run_operation(
                     }
                     Err(err) if cancel.load(Ordering::Relaxed) => return Err(err),
                     Err(err) => {
+                        failed += 1;
                         log(format!(
                             "  ✗ {} → 실패 ({err:#})",
                             input
@@ -2002,10 +2020,12 @@ fn run_operation(
                     }
                 }
             }
-            Ok(format!("압축 완료: {}개 파일", request.inputs.len()))
+            finish_batch("압축", succeeded, failed)
         }
         6 => {
             let count = request.inputs.len() as f32;
+            let mut succeeded = 0usize;
+            let mut failed = 0usize;
             for (i, input) in request.inputs.iter().enumerate() {
                 let item_output_dir = per_input_output_dir(&request, input);
                 let ext = extension(input);
@@ -2046,6 +2066,7 @@ fn run_operation(
                 };
                 match result {
                     Ok(()) => {
+                        succeeded += 1;
                         if request.remove_source
                             && input.exists()
                             && let Err(err) = fs::remove_file(input)
@@ -2061,6 +2082,7 @@ fn run_operation(
                     }
                     Err(err) if cancel.load(Ordering::Relaxed) => return Err(err),
                     Err(err) => {
+                        failed += 1;
                         log(format!(
                             "  ✗ {} → 실패 ({err:#})",
                             input
@@ -2072,7 +2094,7 @@ fn run_operation(
                     }
                 }
             }
-            Ok(format!("압축 해제 완료: {}개 파일", request.inputs.len()))
+            finish_batch("압축 해제", succeeded, failed)
         }
         7 => {
             let format = if request.target_format.eq_ignore_ascii_case("NSP") {
@@ -2151,6 +2173,15 @@ fn run_operation(
         }
         _ => bail!("알 수 없는 탭 번호: {}", request.tab),
     }
+}
+
+fn finish_batch(operation: &str, succeeded: usize, failed: usize) -> Result<String> {
+    if failed > 0 {
+        bail!(
+            "{operation} 작업 일부 실패 — 성공 {succeeded}개, 실패 {failed}개. 작업 로그를 확인하세요."
+        );
+    }
+    Ok(format!("{operation} 완료: {succeeded}개 파일"))
 }
 
 fn apply_success_cleanup(ui: &AppWindow, tab: i32) {
@@ -2277,7 +2308,13 @@ fn persist_settings(ui: &AppWindow, tab: i32, config: &Arc<Mutex<AppConfig>>, pa
         }
         _ => {}
     }
-    let _ = cfg.save(&paths.config_path);
+    if let Err(err) = cfg.save(&paths.config_path) {
+        append_log_direct_with_tone(
+            ui,
+            &format!("[경고] 설정 저장 실패 — 기존 설정은 보존했습니다: {err:#}"),
+            2,
+        );
+    }
 }
 
 fn set_progress(weak: &slint::Weak<AppWindow>, value: f32) {
@@ -2587,6 +2624,26 @@ fn tab_name(tab: i32) -> &'static str {
         7 => "병합",
         8 => "분할",
         _ => "작업",
+    }
+}
+
+#[cfg(test)]
+mod stage73_batch_outcome_tests {
+    use super::*;
+
+    #[test]
+    fn stage73_partial_or_all_failed_batch_cannot_report_success() {
+        assert_eq!(finish_batch("압축", 2, 0).unwrap(), "압축 완료: 2개 파일");
+        for (success, failed) in [(0, 1), (1, 2), (4, 1)] {
+            let result = finish_batch("압축 해제", success, failed);
+            assert!(
+                result.is_err(),
+                "A partially failing batch was reported as success"
+            );
+            let message = result.unwrap_err().to_string();
+            assert!(message.contains(&format!("성공 {success}개")));
+            assert!(message.contains(&format!("실패 {failed}개")));
+        }
     }
 }
 

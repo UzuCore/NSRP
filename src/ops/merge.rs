@@ -1,4 +1,5 @@
 use crate::{
+    atomic_file::publish_generated_file,
     formats::{
         nca::validate_legacy_ticketless_nca_region_for_hash,
         ncz_stream::{decompress_ncz_region_to_nca, reconstructed_nca_size},
@@ -471,10 +472,7 @@ pub fn merge_packages(
             if matches!(options.output_format, MergeFormat::Xci) {
                 publish_verified_xci(&intermediate, &path, cancel)?;
             } else {
-                if path.exists() {
-                    fs::remove_file(&path)?;
-                }
-                move_file(&intermediate, &path)?;
+                publish_generated_file(&intermediate, &path, cancel)?;
             }
             path
         };
@@ -1253,17 +1251,6 @@ fn meta_order(value: ContentMetaType) -> u8 {
     }
 }
 
-fn move_file(src: &Path, dst: &Path) -> Result<()> {
-    match fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(_rename_error) => {
-            fs::copy(src, dst)?;
-            fs::remove_file(src)?;
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1301,7 +1288,7 @@ mod tests {
         let hactool = resource_dir.join("bin").join("hactool.exe");
         let mode = std::env::var("NSRP_MERGE_QA_MODE").context("Missing QA mode")?;
         ensure!(
-            matches!(mode.as_str(), "xci" | "xcz2" | "xcz" | "nsz"),
+            matches!(mode.as_str(), "xci" | "xcz2" | "xcz" | "nsz" | "nsp"),
             "Invalid QA mode"
         );
         ensure!(
@@ -1325,7 +1312,7 @@ mod tests {
                 .with_context(|| format!("Missing split {tag} fixture"))
         };
         let mut inputs = vec![choose("[Base]")?, choose("[Update]")?];
-        if matches!(mode.as_str(), "xcz" | "nsz") {
+        if matches!(mode.as_str(), "xcz" | "nsz" | "nsp") {
             let mut dlcs = files
                 .iter()
                 .filter(|p| {
@@ -1348,12 +1335,12 @@ mod tests {
         let mut keys = KeySet::load_with_local_title_keys(&prod_keys)?;
         let cancel = AtomicBool::new(false);
         let opts = MergeOptions {
-            output_format: if mode == "nsz" {
+            output_format: if matches!(mode.as_str(), "nsz" | "nsp") {
                 MergeFormat::Nsp
             } else {
                 MergeFormat::Xci
             },
-            compress_after: mode != "xci",
+            compress_after: !matches!(mode.as_str(), "xci" | "nsp"),
             use_game_title: true,
             decompression_threads: 4,
             compression: CompressOptions {

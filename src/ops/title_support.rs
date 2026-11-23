@@ -392,18 +392,8 @@ pub(crate) fn sha256_file(path: &Path) -> Result<[u8; 32]> {
     Ok(hash.finalize().into())
 }
 
-pub(crate) fn move_file(src: &Path, dst: &Path) -> Result<()> {
-    if dst.exists() {
-        fs::remove_file(dst)?;
-    }
-    match fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            fs::copy(src, dst)?;
-            fs::remove_file(src)?;
-            Ok(())
-        }
-    }
+pub(crate) fn move_file(src: &Path, dst: &Path, cancel: &AtomicBool) -> Result<()> {
+    crate::atomic_file::publish_generated_file(src, dst, cancel)
 }
 
 #[cfg(test)]

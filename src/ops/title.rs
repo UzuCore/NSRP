@@ -377,7 +377,7 @@ fn finalize_same_format(
     match original_ext {
         "nsp" => {
             let out = output_dir.join(format!("{base}.nsp"));
-            move_file(patched_nsp, &out)?;
+            move_file(patched_nsp, &out, cancel)?;
             progress(1.0);
             Ok(out)
         }
