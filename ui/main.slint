@@ -3,6 +3,7 @@ import { AboutSlint, LineEdit, ListView, Palette, ScrollView, StandardListView }
 component SectionLabel inherits Rectangle {
     in property <string> text;
     background: transparent;
+    clip: true;
     private property <bool> legacy: root.text == "NCA 감지" || root.text == "언어별 타이틀 및 로고 수정" || root.text == "내부 구조 (파일 리스트)";
     if root.text == "NCA 감지" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/section_nca.png"); }
     if root.text == "언어별 타이틀 및 로고 수정" : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/section_title.png"); }
@@ -13,6 +14,7 @@ component FieldLabel inherits Rectangle {
     in property <string> text;
     in property <int> font-weight: 400;
     background: transparent;
+    clip: true;
     private property <bool> legacy:
         root.text == "출력 폴더" || root.text == "NSP / XCI / NSZ / XCZ 파일 또는 폴더" || root.text == "패치 파일 (ZIP 또는 폴더)" ||
         root.text == "ZIP 암호 (있는 경우)" || root.text == "필요 펌웨어 버전 (버전 무시)" || root.text == "NSP / XCI / NSZ / XCZ 파일" ||
@@ -39,6 +41,7 @@ component FieldLabel inherits Rectangle {
 component LegacyTooltip inherits Rectangle {
     in property <string> text;
     background: #ffffe1;
+    clip: true;
     border-width: 1px;
     border-color: #767676;
     border-radius: 2px;
@@ -292,6 +295,8 @@ component ResourceLabel inherits Rectangle {
 component PathBox inherits Rectangle {
     in property <[StandardListViewItem]> model;
     in-out property <int> current-item: -1;
+    // Long lists are confined to their existing frame.
+    clip: true;
     callback row-selected(int);
     private property <bool> known-size:
         (root.width == 705px && (root.height == 136px || root.height == 464px || root.height == 438px || root.height == 462px || root.height == 426px || root.height == 500px)) ||
@@ -342,6 +347,7 @@ component LegacyLineEdit inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> read-only: false;
     background: transparent;
+    clip: true;
     if root.width <= 201px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_200.png"); }
     if root.width == 482px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_482.png"); }
     if root.width == 560px : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/lineedit_560.png"); }
@@ -368,6 +374,7 @@ component LegacyRequiredVersion inherits Rectangle {
     in property <bool> enabled;
     callback clicked();
     background: transparent;
+    clip: true;
     if !root.enabled : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/combo_disabled_160.png"); }
     if root.enabled : Image { width: parent.width; height: parent.height; source:@image-url("legacy_assets/combo_active_160.png"); }
     if root.enabled : Text {
@@ -453,15 +460,22 @@ component PlaceholderTree inherits Rectangle {
     in property <string> body;
     in property <[TreeRow]> rows;
     callback row-clicked(int);
-    private property <bool> legacy-empty: root.body == "" && root.rows.length == 0 && root.width == 789px && root.height == 385px;
-    background: root.legacy-empty ? transparent : white;
-    border-width: root.legacy-empty ? 0px : 1px;
+    // Header skin is tied to the widget geometry, never to data availability.
+    private property <bool> legacy-frame: root.width == 789px && root.height == 385px;
+    background: root.legacy-frame ? transparent : white;
+    border-width: root.legacy-frame ? 0px : 1px;
     border-color: #b8b8b8;
-    if root.legacy-empty : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/tree_extract_empty.png"); }
-    if root.rows.length > 0 : Rectangle {
-        width:parent.width; height:parent.height; background:#ffffff;
-        Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/tree_extract_empty.png"); }
-        ListView {
+    clip: true;
+    if root.legacy-frame : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/tree_extract_empty.png"); }
+    if !root.legacy-frame : Rectangle {
+        height:25px; width:parent.width; background:#f5f5f5;
+        Text { x:8px; width:parent.width - 16px; height:parent.height; text:root.header; color:#202124; font-size:12px; vertical-alignment:center; overflow:elide; }
+    }
+    if !root.legacy-frame && root.rows.length == 0 : Text {
+        x:8px; y:25px; width:parent.width - 16px; height:parent.height - 25px;
+        text:root.body; color:#777777; horizontal-alignment:center; vertical-alignment:center; wrap:word-wrap;
+    }
+    if root.rows.length > 0 : ListView {
             x:1px; y:25px; width:parent.width - 2px; height:parent.height - 26px;
             for row[index] in root.rows : Rectangle {
                 width:parent.width; height:18px; background:row.selected ? #d9d9d9 : #ffffff;
@@ -470,17 +484,12 @@ component PlaceholderTree inherits Rectangle {
                 Text { x:413px; width:367px; height:18px; text:row.offset; color:#000000; font-family:"맑은 고딕"; font-size:12px; vertical-alignment:center; overflow:elide; }
                 TouchArea { width:parent.width; height:parent.height; clicked => { root.row-clicked(index); } }
             }
-        }
-    }
-    if !root.legacy-empty : VerticalLayout {
-        spacing: 0px;
-        Rectangle { height: 28px; background: #f5f5f5; Text { x: 8px; text: root.header; color: #202124; font-size: 12px; vertical-alignment: center; } }
-        Text { text: root.body; color: #777777; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
     }
 }
 component AnalyzeFileTree inherits Rectangle {
     in property <[TreeRow]> rows;
     background: transparent;
+    clip: true;
     Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/analyze_file_tree_empty.png"); }
     if root.rows.length > 0 : ListView {
         x:1px; y:25px; width:parent.width - 2px; height:parent.height - 26px;
@@ -513,6 +522,7 @@ component AnalyzeContentTree inherits Rectangle {
     background: #ffffff;
     border-width: 1px;
     border-color: #b8b8b8;
+    clip: true;
     Rectangle {
         x:1px; y:1px; width:parent.width - 2px; height:24px; background:#f5f5f5;
         Text { x:8px; width:36px; height:24px; text:"#"; color:#000000; font-size:12px; vertical-alignment:center; }
@@ -562,6 +572,7 @@ export struct LogRow {
 component QtLogView inherits Rectangle {
     in property <[LogRow]> rows;
     background: transparent;
+    clip: true;
     if root.rows.length == 0 : Image { width:parent.width; height:parent.height; source:@image-url("legacy_assets/log_empty.png"); }
     if root.rows.length > 0 : Rectangle {
         width:parent.width; height:parent.height; background:#ffffff; border-width:1px; border-color:#b8b8b8;
@@ -853,8 +864,18 @@ export component AppWindow inherits Window {
 
                             SectionLabel { x: 20px; y: 358px; width: 789px; height: 20px; text: "NCA 감지"; }
                             Rectangle {
-                                x: 20px; y: 384px; width: 789px; height: 100px; background: #ffffff; border-width: 1px; border-color: #b8b8b8;
-                                Text { x: 7px; y: 6px; text: root.patch-analysis-text; color: #555555; font-size: 12px; wrap: word-wrap; }
+                                x: 20px; y: 384px; width: 789px; height: 100px; background: #ffffff; border-width: 1px; border-color: #b8b8b8; clip: true;
+                                ScrollView {
+                                    x: 6px; y: 5px; width: parent.width - 12px; height: parent.height - 10px;
+                                    viewport-width: self.width;
+                                    viewport-height: max(self.height, nca-analysis-content.preferred-height + 12px);
+                                    nca-analysis-content := Text {
+                                        x: 2px; y: 2px; width: parent.width - 18px;
+                                        height: self.preferred-height;
+                                        text: root.patch-analysis-text; color: #555555; font-size: 12px;
+                                        wrap: word-wrap; vertical-alignment: top;
+                                    }
+                                }
                             }
                             FieldLabel { x: 20px; y: 490px; width: 109px; height: 22px; text: "ZIP·7z 암호"; }
                             LegacyLineEdit { x: 135px; y: 490px; width: 200px; height: 22px; text <=> root.zip-password; }

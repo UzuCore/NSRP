@@ -2628,6 +2628,99 @@ fn tab_name(tab: i32) -> &'static str {
 }
 
 #[cfg(test)]
+mod stage77_form_overflow_tests {
+    // Guard the scrolling and stable-frame behavior at the point where the
+    // Slint view declarations are compiled, without depending on user ROMs.
+    #[test]
+    fn stage77_nca_analysis_uses_bounded_vertical_scroll() {
+        let ui = include_str!("../ui/main.slint");
+        let panel = ui
+            .split("x: 20px; y: 384px; width: 789px; height: 100px;")
+            .nth(1)
+            .expect("Patch NCA analysis panel must exist")
+            .split("x: 20px; y: 490px;")
+            .next()
+            .unwrap();
+        assert!(panel.contains("clip: true;"));
+        assert!(panel.contains("ScrollView {"));
+        assert!(panel.contains("viewport-width: self.width;"));
+        assert!(panel.contains("nca-analysis-content.preferred-height"));
+        assert!(panel.contains("height: self.preferred-height;"));
+        assert!(panel.contains("root.patch-analysis-text"));
+    }
+
+    #[test]
+    fn stage77_extract_columns_keep_the_same_bitmap_after_rows_arrive() {
+        let ui = include_str!("../ui/main.slint");
+        let tree = ui
+            .split("component PlaceholderTree inherits Rectangle {")
+            .nth(1)
+            .expect("Extract file tree must exist")
+            .split("component AnalyzeFileTree")
+            .next()
+            .unwrap();
+        let skin = tree
+            .lines()
+            .find(|line| line.contains("private property <bool> legacy-frame:"))
+            .expect("Extract file tree must have a stable frame condition");
+        assert!(skin.contains("root.width == 789px"));
+        assert!(skin.contains("root.height == 385px"));
+        assert!(!skin.contains("root.rows"));
+        assert!(tree.contains("if root.legacy-frame : Image"));
+        assert!(tree.contains("tree_extract_empty.png"));
+        assert!(tree.contains("if root.rows.length > 0 : ListView"));
+        assert!(tree.contains("y:25px;"));
+        assert!(tree.contains("clip: true;"));
+        assert!(!tree.contains("legacy-empty"));
+    }
+
+    #[test]
+    fn stage77_input_and_other_form_lists_stay_within_their_frames() {
+        let ui = include_str!("../ui/main.slint");
+        let components = [
+            "component PathBox inherits Rectangle {",
+            "component LegacyLineEdit inherits Rectangle {",
+            "component LegacyRequiredVersion inherits Rectangle {",
+            "component AnalyzeFileTree inherits Rectangle {",
+            "component AnalyzeContentTree inherits Rectangle {",
+            "component QtLogView inherits Rectangle {",
+            "component FieldLabel inherits Rectangle {",
+        ];
+        for declaration in components {
+            let body = ui
+                .split(declaration)
+                .nth(1)
+                .unwrap_or_else(|| panic!("Missing UI component {declaration}"))
+                .split("\ncomponent ")
+                .next()
+                .unwrap();
+            assert!(
+                body.contains("clip: true;"),
+                "Unbounded overflow in UI component {declaration}"
+            );
+        }
+        let path_box = ui
+            .split(components[0])
+            .nth(1)
+            .unwrap()
+            .split("\ncomponent ")
+            .next()
+            .unwrap();
+        assert!(path_box.contains("ListView {"));
+        assert!(path_box.contains("overflow: elide;"));
+        let input = ui
+            .split(components[1])
+            .nth(1)
+            .unwrap()
+            .split("\ncomponent ")
+            .next()
+            .unwrap();
+        assert!(input.contains("single-line: true;"));
+        assert!(input.contains("TextInput {"));
+    }
+}
+
+#[cfg(test)]
 mod stage75_status_footer_tests {
     // Slint privately nests the footer components, so lock down their shared
     // sizing contract in addition to the pixel-level Windows screenshot QA.
