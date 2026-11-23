@@ -12,6 +12,7 @@
 - **변환·압축·해제:** 지원하는 형식 간 변환과 압축·압축 해제
 - **병합·분할:** 본편·업데이트·DLC를 CNMT 기반으로 판별해 병합하거나 구성별로 분할
 - **타이틀 수정·패치:** 지원되는 NCA 구조에서 제목·아이콘 변경과 패치
+- **한글패치 입력:** RomFS·ExeFS 폴더와 ZIP·7z 압축파일(암호화 7z 포함)을 파일 교체 패치로 적용합니다. xdelta·IPS는 지원하지 않습니다.
 - **작업 안전성:** 취소 처리, 출력 검증, 원본 보호, 충돌 방지와 실패 시 복구
 - **자동업데이트:** GitHub 공식 Release의 버전·매니페스트·SHA-256을 검증한 뒤 업데이트
 
@@ -104,5 +105,6 @@ NSRP 자체 소스는 [MIT 라이선스](LICENSE)를 사용하고, 외부 도구
 - **Slint 1.17.1:** Royalty-free Desktop License 2.0을 사용합니다. **도움말 → 정보**에 원본 `AboutSlint` 고지 위젯을 표시하며, [라이선스 원문](licenses/Slint-Royalty-free-2.0.md)을 배포에 포함합니다. `scripts/check-third-party-attribution.ps1`에서 고지 연결과 라이선스 SHA를 검수합니다. Slint 프레임워크 자체를 별도로 배포하지 않습니다.
 - **hactool / hacbuild / LibHac:** [외부 라이선스 고지](THIRD_PARTY_NOTICES.md)에서 출처와 적용 라이선스를 확인할 수 있습니다.
 - **Mbed TLS:** hactool의 암호화 구성 요소에 필요한 [Apache-2.0 고지 원문](licenses/mbedtls-Apache-2.0.txt)을 변경 없이 보관합니다.
+- **sevenz-rust2 0.25.0:** 외부 7z 실행파일 없이 7z를 처리하는 Apache-2.0 라이브러리입니다. [라이선스 원문](licenses/sevenz-rust2-Apache-2.0.txt)을 배포에 포함합니다.
 
 더 자세한 내용은 [빌드·배포 문서](BUILD_RELEASE.md)와 [NSRP 모듈 구성](docs/architecture/NSRP_MODULES.md)을 참고하세요.

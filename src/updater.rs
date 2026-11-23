@@ -269,6 +269,7 @@ fn allowed_archive_file(name: &str) -> bool {
             | "licenses/LibHac-MIT.txt"
             | "licenses/Slint-Royalty-free-2.0.md"
             | "licenses/mbedtls-Apache-2.0.txt"
+            | "licenses/sevenz-rust2-Apache-2.0.txt"
     )
 }
 

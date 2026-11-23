@@ -37,6 +37,7 @@ $sources=@(
     @{path=(Join-Path $root 'licenses\hactool-ISC.txt');name='licenses\hactool-ISC.txt'},
     @{path=(Join-Path $root 'licenses\mbedtls-Apache-2.0.txt');name='licenses\mbedtls-Apache-2.0.txt'},
     @{path=(Join-Path $root 'licenses\Slint-Royalty-free-2.0.md');name='licenses\Slint-Royalty-free-2.0.md'},
+    @{path=(Join-Path $root 'licenses\sevenz-rust2-Apache-2.0.txt');name='licenses\sevenz-rust2-Apache-2.0.txt'},
     @{path=(Join-Path $root 'bin\LibHac_LICENSE.txt');name='licenses\LibHac-MIT.txt'}
 )
 foreach($item in $sources){

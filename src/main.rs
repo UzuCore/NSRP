@@ -704,7 +704,7 @@ fn wire_file_dialogs(window: &AppWindow) {
         let weak = window.as_weak();
         window.on_choose_patches(move || {
             let Some(files) = rfd::FileDialog::new()
-                .add_filter("ZIP Patch", &["zip"])
+                .add_filter("패치 파일", &["zip", "7z"])
                 .pick_files()
             else {
                 return;
@@ -1668,7 +1668,7 @@ fn collect_request(ui: &AppWindow, tab: i32) -> Result<OperationRequest> {
     }
     let patches = split_paths(&ui.get_patch_paths());
     if tab == 0 && patches.is_empty() {
-        bail!("패치 ZIP 또는 폴더를 선택하세요");
+        bail!("패치 ZIP·7z 또는 폴더를 선택하세요");
     }
     for patch in &patches {
         if !patch.exists() {

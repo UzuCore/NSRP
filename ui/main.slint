@@ -845,7 +845,7 @@ export component AppWindow inherits Window {
                             LegacyButton { x: 731px; y: 68px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-input-folder(); } }
                             LegacyButton { x: 731px; y: 104px; width: 78px; height: 30px; text: "- 선택 삭제"; clicked => { root.remove-input(root.input-current); } }
 
-                            FieldLabel { x: 20px; y: 184px; width: 789px; height: 16px; text: "패치 파일 (ZIP 또는 폴더)"; }
+                            FieldLabel { x: 20px; y: 184px; width: 789px; height: 16px; text: "패치 파일 (ZIP·7z·폴더)"; }
                             PathBox { x: 20px; y: 206px; width: 705px; height: 136px; model: root.patch-items; current-item <=> root.patch-current; }
                             LegacyButton { x: 731px; y: 206px; width: 78px; height: 30px; text: "+ 파일 추가"; clicked => { root.choose-patches(); } }
                             LegacyButton { x: 731px; y: 242px; width: 78px; height: 30px; text: "+ 폴더 추가"; clicked => { root.choose-patch-folder(); } }
@@ -856,7 +856,7 @@ export component AppWindow inherits Window {
                                 x: 20px; y: 384px; width: 789px; height: 100px; background: #ffffff; border-width: 1px; border-color: #b8b8b8;
                                 Text { x: 7px; y: 6px; text: root.patch-analysis-text; color: #555555; font-size: 12px; wrap: word-wrap; }
                             }
-                            FieldLabel { x: 20px; y: 490px; width: 109px; height: 22px; text: "ZIP 암호 (있는 경우)"; }
+                            FieldLabel { x: 20px; y: 490px; width: 109px; height: 22px; text: "ZIP·7z 암호"; }
                             LegacyLineEdit { x: 135px; y: 490px; width: 200px; height: 22px; text <=> root.zip-password; }
                             FieldLabel { x: 20px; y: 518px; width: 156px; height: 22px; text: "필요 펌웨어 버전 (버전 무시)"; }
                             LegacyRequiredVersion { x: 182px; y: 518px; width: 160px; height: 22px; text <=> root.required-system-version; display-text: root.required-system-version-display; enabled: root.patch-version-enabled; clicked => { root.firmware-menu-open = !root.firmware-menu-open; } }

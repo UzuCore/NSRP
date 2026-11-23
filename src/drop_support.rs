@@ -79,9 +79,10 @@ pub fn classify_drop(tab: i32, path: &Path, x: i32, y: i32) -> DropDestination {
     }
     if tab == 0 {
         let in_patch_region = (25..=825).contains(&x) && (251..=413).contains(&y);
-        // ZIPs are patch sources, not package files, regardless of landing
+        // ZIP/7z archives are patch sources, not package files, regardless of landing
         // point. A folder is a patch only when dropped on the patch panel.
-        if path.is_file() && extension == "zip" || is_dir && in_patch_region {
+        if path.is_file() && matches!(extension.as_str(), "zip" | "7z") || is_dir && in_patch_region
+        {
             return DropDestination::Patch;
         }
     }
@@ -120,14 +121,22 @@ mod tests {
         let nsp = qa.path().join("게임.NSP");
         let nsz = qa.path().join("압축.NSZ");
         let zip = qa.path().join("한글패치.ZIP");
+        let sevenz = qa.path().join("한글패치.7Z");
         let png = qa.path().join("한글.png");
         std::fs::write(&nsp, b"x").unwrap();
         std::fs::write(&nsz, b"x").unwrap();
         std::fs::write(&zip, b"x").unwrap();
+        std::fs::write(&sevenz, b"x").unwrap();
         std::fs::write(&png, b"x").unwrap();
 
         assert_eq!(classify_drop(0, &nsp, 400, 130), DropDestination::InputFile);
         assert_eq!(classify_drop(0, &zip, 400, 130), DropDestination::Patch);
+        assert_eq!(classify_drop(0, &sevenz, 400, 130), DropDestination::Patch);
+        assert_eq!(classify_drop(0, &sevenz, 400, 310), DropDestination::Patch);
+        assert_eq!(
+            classify_drop(1, &sevenz, 400, 130),
+            DropDestination::Unsupported
+        );
         assert_eq!(
             classify_drop(0, qa.path(), 400, 310),
             DropDestination::Patch

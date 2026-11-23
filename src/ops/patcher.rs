@@ -26,8 +26,9 @@ use crate::{
     process::run_tool,
 };
 use anyhow::{Context, Result, bail, ensure};
+use sevenz_rust2::{ArchiveReader as SevenZReader, Password as SevenZPassword};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     ffi::OsString,
     fs::{self, File},
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
@@ -241,13 +242,23 @@ pub fn patch_packages(
         if patch.is_dir() {
             apply_folder_patch(patch, &patch_romfs, &patch_exefs, cancel)?;
         } else {
-            apply_zip_patch(
-                patch,
-                options.zip_password.as_deref(),
-                &patch_romfs,
-                &patch_exefs,
-                cancel,
-            )?;
+            match patch.extension().and_then(|extension| extension.to_str()) {
+                Some(extension) if extension.eq_ignore_ascii_case("zip") => apply_zip_patch(
+                    patch,
+                    options.zip_password.as_deref(),
+                    &patch_romfs,
+                    &patch_exefs,
+                    cancel,
+                )?,
+                Some(extension) if extension.eq_ignore_ascii_case("7z") => apply_7z_patch(
+                    patch,
+                    options.zip_password.as_deref(),
+                    &patch_romfs,
+                    &patch_exefs,
+                    cancel,
+                )?,
+                _ => bail!("지원하지 않는 패치 파일입니다: {}", patch.display()),
+            }
         }
     }
     let romfs_patch_count = count_files(&patch_romfs);
@@ -1395,6 +1406,220 @@ fn apply_zip_patch(
     Ok(())
 }
 
+// 7z is decoded in private patch staging only. The reader drains ignored
+// solid-archive entries and verifies CRCs instead of extracting them.
+const MAX_7Z_PATCH_FILES: usize = 200_000;
+const MAX_7Z_PATCH_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+const MAX_7Z_DECODER_MEMORY_KIB: usize = 256 * 1024;
+
+fn safe_7z_entry_path(name: &str) -> Result<PathBuf> {
+    let normalized = name.replace('\\', "/");
+    ensure!(
+        !normalized.starts_with('/'),
+        "7z 절대 경로를 차단했습니다: {name}"
+    );
+    let parts: Vec<_> = normalized.split('/').collect();
+    let mut relative = PathBuf::new();
+    for (index, part) in parts.iter().enumerate() {
+        if part.is_empty() && index == parts.len() - 1 {
+            continue; // Directory terminator.
+        }
+        ensure!(!part.is_empty(), "7z 빈 경로 요소를 차단했습니다: {name}");
+        if *part == "." {
+            continue;
+        }
+        ensure!(*part != "..", "7z 상위 경로 이동을 차단했습니다: {name}");
+        ensure!(
+            !part
+                .chars()
+                .any(|c| matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0'))
+                && !part.ends_with('.')
+                && !part.ends_with(' '),
+            "7z Windows 경로의 잘못된 이름을 차단했습니다: {name}"
+        );
+        let stem = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+        ensure!(
+            !matches!(
+                stem.as_str(),
+                "CON"
+                    | "PRN"
+                    | "AUX"
+                    | "NUL"
+                    | "CONIN$"
+                    | "CONOUT$"
+                    | "COM1"
+                    | "COM2"
+                    | "COM3"
+                    | "COM4"
+                    | "COM5"
+                    | "COM6"
+                    | "COM7"
+                    | "COM8"
+                    | "COM9"
+                    | "LPT1"
+                    | "LPT2"
+                    | "LPT3"
+                    | "LPT4"
+                    | "LPT5"
+                    | "LPT6"
+                    | "LPT7"
+                    | "LPT8"
+                    | "LPT9"
+            ),
+            "7z Windows 예약 장치 이름을 차단했습니다: {name}"
+        );
+        relative.push(part);
+    }
+    ensure!(
+        !relative.as_os_str().is_empty(),
+        "7z 파일 경로가 비어 있습니다"
+    );
+    ensure!(
+        relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_))),
+        "7z 경로 안전성을 확인할 수 없습니다: {name}"
+    );
+    Ok(relative)
+}
+
+fn apply_7z_patch(
+    archive_path: &Path,
+    password: Option<&str>,
+    romfs: &Path,
+    exefs: &Path,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    ensure!(
+        archive_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("7z")),
+        "7z 패치 파일이 아닙니다: {}",
+        archive_path.display()
+    );
+    ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+    let file = File::open(archive_path)
+        .with_context(|| format!("7z 패치 파일을 열 수 없습니다: {}", archive_path.display()))?;
+    let mut reader = SevenZReader::new_with_memory_limit(
+        file,
+        SevenZPassword::from(password.unwrap_or("")),
+        MAX_7Z_DECODER_MEMORY_KIB,
+    )
+    .with_context(|| format!("7z 헤더/암호 확인 실패: {}", archive_path.display()))?;
+    reader.set_thread_count(1); // Predictable memory use with solid archives.
+
+    let entries = &reader.archive().files;
+    ensure!(
+        entries.len() <= MAX_7Z_PATCH_FILES,
+        "7z 패치 파일 개수 제한을 초과했습니다"
+    );
+    let mut expanded = 0u64;
+    let mut seen = HashSet::new();
+    for entry in entries {
+        let name = safe_7z_entry_path(entry.name())?;
+        ensure!(!entry.is_anti_item(), "7z 삭제 항목은 지원하지 않습니다");
+        if entry.has_windows_attributes {
+            let attrs = entry.windows_attributes();
+            ensure!(
+                attrs & 0x400 == 0 && ((attrs >> 16) & 0o170000) != 0o120000,
+                "7z 링크/재분석 지점을 차단했습니다: {}",
+                entry.name()
+            );
+        }
+        if entry.is_directory() {
+            continue;
+        }
+        ensure!(
+            seen.insert(name.to_string_lossy().to_lowercase()),
+            "7z 중복 파일 경로를 차단했습니다: {}",
+            entry.name()
+        );
+        expanded = expanded
+            .checked_add(entry.size())
+            .context("7z 압축 해제 크기 오버플로")?;
+        ensure!(
+            expanded <= MAX_7Z_PATCH_BYTES,
+            "7z 패치 해제 용량 제한(64GiB)을 초과했습니다"
+        );
+    }
+    let structured = entries
+        .iter()
+        .any(|entry| !entry.is_directory() && zip_name_has_patch_structure(entry.name()));
+    let mut callback_error = None;
+    let result = reader.for_each_entries(|entry, source| {
+        let extract = (|| -> Result<()> {
+            ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+            if entry.is_directory() {
+                return Ok(());
+            }
+            let path = safe_7z_entry_path(entry.name())?;
+            let route = if let Some(route) = explicit_patch_route(&path) {
+                Some(route)
+            } else if structured {
+                None
+            } else {
+                Some((PatchArea::RomFs, path))
+            };
+            let Some((area, relative)) = route else {
+                return Ok(());
+            };
+            if relative.as_os_str().is_empty() {
+                return Ok(());
+            }
+            let target = match area {
+                PatchArea::RomFs => romfs.join(relative),
+                PatchArea::ExeFs => exefs.join(relative),
+            };
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut output = BufWriter::new(File::create(target)?);
+            let mut chunk = [0u8; 128 * 1024];
+            let mut written = 0u64;
+            loop {
+                ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
+                let size = source.read(&mut chunk)?;
+                if size == 0 {
+                    break;
+                }
+                written = written
+                    .checked_add(size as u64)
+                    .context("7z 파일 크기 오버플로")?;
+                ensure!(
+                    written <= entry.size(),
+                    "7z 압축 해제 데이터가 선언된 파일 크기를 초과했습니다: {}",
+                    entry.name()
+                );
+                output.write_all(&chunk[..size])?;
+            }
+            ensure!(
+                written == entry.size(),
+                "7z 압축 해제 파일 크기가 일치하지 않습니다: {}",
+                entry.name()
+            );
+            output.flush()?;
+            Ok(())
+        })();
+        if let Err(error) = extract {
+            callback_error = Some(error);
+            return Err(sevenz_rust2::Error::from(io::Error::other(
+                "7z 패치 항목 처리 오류",
+            )));
+        }
+        Ok(true)
+    });
+    if let Some(error) = callback_error {
+        return Err(error);
+    }
+    result.with_context(|| {
+        format!(
+            "7z 패치 해제 실패(암호 또는 파일 손상): {}",
+            archive_path.display()
+        )
+    })
+}
+
 fn extract_zip_item<R: Read>(
     item: &mut zip::read::ZipFile<'_, R>,
     romfs: &Path,
@@ -2004,6 +2229,158 @@ mod tests {
         assert_eq!(fs::read(exefs.join("main.npdm"))?, b"exefs");
         assert!(!romfs.join("README.txt").exists());
         assert!(!exefs.join("README.txt").exists());
+        Ok(())
+    }
+
+    fn create_stage76_7z(path: &Path, files: &[(&str, &[u8])]) -> Result<()> {
+        let mut writer = sevenz_rust2::ArchiveWriter::create(path)?;
+        for (name, bytes) in files {
+            writer.push_archive_entry(
+                sevenz_rust2::ArchiveEntry::new_file(name),
+                Some(std::io::Cursor::new(*bytes)),
+            )?;
+        }
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn stage76_7z_structured_romfs_exefs_and_unscoped_readme() -> Result<()> {
+        let qa = tempfile::tempdir()?;
+        let archive = qa.path().join("한글패치.7Z");
+        create_stage76_7z(
+            &archive,
+            &[
+                ("bundle/romfs/한글/data.bin", b"romfs-korean"),
+                ("bundle\\exefs\\main", b"exefs-patch"),
+                ("README.txt", b"ignore"),
+            ],
+        )?;
+        let romfs = qa.path().join("romfs");
+        let exefs = qa.path().join("exefs");
+        apply_7z_patch(&archive, None, &romfs, &exefs, &AtomicBool::new(false))?;
+        assert_eq!(fs::read(romfs.join("한글/data.bin"))?, b"romfs-korean");
+        assert_eq!(fs::read(exefs.join("main"))?, b"exefs-patch");
+        assert!(!romfs.join("README.txt").exists());
+        assert!(!exefs.join("README.txt").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn stage76_7z_flat_archive_defaults_to_romfs() -> Result<()> {
+        let qa = tempfile::tempdir()?;
+        let archive = qa.path().join("flat.7z");
+        create_stage76_7z(&archive, &[("data.bin", b"hello"), ("empty.bin", b"")])?;
+        let romfs = qa.path().join("romfs");
+        let exefs = qa.path().join("exefs");
+        apply_7z_patch(&archive, None, &romfs, &exefs, &AtomicBool::new(false))?;
+        assert_eq!(fs::read(romfs.join("data.bin"))?, b"hello");
+        assert_eq!(fs::read(romfs.join("empty.bin"))?, b"");
+        assert!(!exefs.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn stage76_zip_and_7z_apply_in_selected_order() -> Result<()> {
+        let qa = tempfile::tempdir()?;
+        let zip_file = qa.path().join("first.zip");
+        let mut zip_writer = zip::ZipWriter::new(File::create(&zip_file)?);
+        zip_writer.start_file("romfs/data.txt", zip::write::SimpleFileOptions::default())?;
+        zip_writer.write_all(b"original")?;
+        zip_writer.finish()?;
+        let sevenz_file = qa.path().join("second.7z");
+        create_stage76_7z(&sevenz_file, &[("romfs/data.txt", b"replacement")])?;
+        let romfs = qa.path().join("romfs");
+        let exefs = qa.path().join("exefs");
+        apply_zip_patch(&zip_file, None, &romfs, &exefs, &AtomicBool::new(false))?;
+        apply_7z_patch(&sevenz_file, None, &romfs, &exefs, &AtomicBool::new(false))?;
+        assert_eq!(fs::read(romfs.join("data.txt"))?, b"replacement");
+        Ok(())
+    }
+
+    #[test]
+    fn stage76_7z_aes_password_and_wrong_password() -> Result<()> {
+        let qa = tempfile::tempdir()?;
+        let source = qa.path().join("patch");
+        fs::create_dir_all(source.join("romfs"))?;
+        fs::write(source.join("romfs/korean.txt"), b"encrypted korean")?;
+        let archive = qa.path().join("protected.7z");
+        sevenz_rust2::compress_to_path_encrypted(
+            &source,
+            &archive,
+            sevenz_rust2::Password::from("correct-7z"),
+        )?;
+        let romfs = qa.path().join("correct_romfs");
+        apply_7z_patch(
+            &archive,
+            Some("correct-7z"),
+            &romfs,
+            &qa.path().join("correct_exefs"),
+            &AtomicBool::new(false),
+        )?;
+        assert_eq!(fs::read(romfs.join("korean.txt"))?, b"encrypted korean");
+        assert!(
+            apply_7z_patch(
+                &archive,
+                Some("wrong"),
+                &qa.path().join("wrong_romfs"),
+                &qa.path().join("wrong_exefs"),
+                &AtomicBool::new(false),
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stage76_7z_rejects_unsafe_paths_duplicates_symlinks_and_corruption() -> Result<()> {
+        for invalid in [
+            "../outside.bin",
+            "/absolute.bin",
+            "C:/Windows/file.bin",
+            "romfs/../../file.bin",
+            "romfs/NUL.txt",
+            "romfs/data.txt:evil",
+            "romfs//file.bin",
+            "romfs/trailing. ",
+        ] {
+            assert!(safe_7z_entry_path(invalid).is_err(), "Accepted: {invalid}");
+        }
+        let qa = tempfile::tempdir()?;
+        let duplicate = qa.path().join("duplicate.7z");
+        create_stage76_7z(
+            &duplicate,
+            &[("romfs/Data.BIN", b"one"), ("romfs/data.bin", b"two")],
+        )?;
+        let output = qa.path().join("out_romfs");
+        let exefs = qa.path().join("out_exefs");
+        assert!(
+            apply_7z_patch(&duplicate, None, &output, &exefs, &AtomicBool::new(false)).is_err()
+        );
+        assert!(!output.exists());
+        let traversal = qa.path().join("traversal.7z");
+        create_stage76_7z(&traversal, &[("../outside.bin", b"escape")])?;
+        assert!(
+            apply_7z_patch(&traversal, None, &output, &exefs, &AtomicBool::new(false)).is_err()
+        );
+        assert!(!qa.path().join("outside.bin").exists());
+
+        let reparse = qa.path().join("reparse.7z");
+        let mut writer = sevenz_rust2::ArchiveWriter::create(&reparse)?;
+        let mut link = sevenz_rust2::ArchiveEntry::new_file("romfs/link");
+        link.has_windows_attributes = true;
+        link.windows_attributes = 0x400;
+        writer.push_archive_entry(link, Some(std::io::Cursor::new(b"link")))?;
+        writer.finish()?;
+        assert!(apply_7z_patch(&reparse, None, &output, &exefs, &AtomicBool::new(false)).is_err());
+
+        let broken = qa.path().join("broken.7z");
+        fs::write(&broken, b"not a 7z file")?;
+        assert!(apply_7z_patch(&broken, None, &output, &exefs, &AtomicBool::new(false)).is_err());
+        let canceled = qa.path().join("canceled.7z");
+        create_stage76_7z(&canceled, &[("romfs/data", b"hello")])?;
+        assert!(apply_7z_patch(&canceled, None, &output, &exefs, &AtomicBool::new(true)).is_err());
+        assert!(!output.exists());
         Ok(())
     }
 

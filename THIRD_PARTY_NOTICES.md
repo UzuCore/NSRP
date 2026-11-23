@@ -12,6 +12,7 @@ tools are **not** original Rust implementations by NSRP's authors.
 | hactoolnet / LibHac | <https://gitlab.com/ryujinx-classic/LibHac> (recorded source commit `fefa38ff`) | `licenses/LibHac-MIT.txt` in ZIP (`bin/LibHac_LICENSE.txt` in source, MIT) |
 | hacbuild | <https://github.com/LucaCorigliano/hacbuild> (archived upstream) | `licenses/hacbuild-MIT.txt` (MIT, Copyright (c) 2018 Luca Corigliano) |
 | Slint 1.17.1 (UI framework) | <https://github.com/slint-ui/slint> | `licenses/Slint-Royalty-free-2.0.md` (Slint Royalty-free Desktop, Mobile, and Web Applications License, v2.0) |
+| sevenz-rust2 0.25.0 (7z decoding and AES-256, native Rust) | <https://github.com/hasenbanck/sevenz-rust2> | `licenses/sevenz-rust2-Apache-2.0.txt` (Apache-2.0) |
 
 The build source includes the original helper binaries, a fixed-size gamecard
 preset and an icon for *byte-identical* local reproduction. Every input is
