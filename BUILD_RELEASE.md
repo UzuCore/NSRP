@@ -101,6 +101,14 @@ build tag. It compares commits to prevent downgrades, downloads over HTTPS
 with size/time limits, rejects unknown archive paths and verifies the
 manifest SHA-256 before showing installation confirmation.
 
+The updater can download to `LOCALAPPDATA` on **C:** while the portable EXE
+is installed on **D:**. Before acknowledging the update, it copies and
+SHA-256-verifies both installable files into a private staging folder **on
+the executable's installation volume**. Windows `File.Replace` then uses
+same-volume source, destination and rollback backup, followed by a verified
+diagnostic backup in the download task. The staging folder is removed on
+success or successful rollback; rollback failures retain their local backups.
+
 The extracted update resides in the private user `LOCALAPPDATA/NSRP/Workspace/updates`
 tree, not under the executable directory. The helper verifies/stages and
 acknowledges readiness **before** the running GUI exits. It then waits for
@@ -111,7 +119,12 @@ other NSRP installations are not changed.
 
 `scripts/test-auto-update.ps1` tests portable, dist and target layouts,
 corrupted update, invalid manifest, process-exit waiting, and delayed
-replacement failure with SHA-protected disposable user-data sentinels.
+replacement failure with SHA-protected disposable user-data sentinels. On
+development machines with separate C: and D: drives it additionally tests
+**actual C: download/task -> D: installation** for all three layouts and
+an intentionally failed D: manifest replacement with verified rollback.
+Those cases are explicitly skipped on single-volume CI runners, rather than
+being falsely claimed as exercised.
 
 ## GitHub safety and third-party licensing
 

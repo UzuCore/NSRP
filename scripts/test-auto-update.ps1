@@ -9,8 +9,10 @@ $tag = (Get-Content -LiteralPath $officialManifest -Raw | ConvertFrom-Json).comm
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ('NSRP_update_test_' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 
-function New-Sample([string]$name,[string]$layout) {
-    $base = Join-Path $scratch $name
+function New-Sample([string]$name,[string]$layout,[string]$installationRoot='') {
+    # For regression tests, download/task can be on C: while installation is
+    # on D:, matching a portable NSRP executable outside LOCALAPPDATA.
+    $base = if ($installationRoot) { Join-Path $installationRoot $name } else { Join-Path $scratch $name }
     $binDir = switch ($layout) {
         'portable' { $base }
         'dist' { Join-Path $base 'dist' }
@@ -30,7 +32,11 @@ function New-Sample([string]$name,[string]$layout) {
         [IO.File]::WriteAllText($file, "protected sentinel: $name/$rel",[Text.UTF8Encoding]::new($false))
         $sentinels[$rel] = (Get-FileHash $file -Algorithm SHA256).Hash
     }
-    $task = Join-Path $base 'temp\nsrp_update_sandbox'
+    $task = if ($installationRoot) {
+        Join-Path (Join-Path $scratch 'cross-volume-tasks') $name
+    } else {
+        Join-Path $base 'temp\nsrp_update_sandbox'
+    }
     $package = Join-Path $task 'package'
     New-Item -ItemType Directory -Path $package -Force | Out-Null
     Copy-Item -LiteralPath $officialExe -Destination (Join-Path $package 'nsrp.exe')
@@ -61,6 +67,7 @@ function Assert-Sentinels($case) {
     }
 }
 
+$crossVolumeRoot = Join-Path $root ('_qa\stage80_cross_volume_' + [guid]::NewGuid().ToString('N'))
 try {
     foreach ($layout in @('portable','dist','target')) {
         $case = New-Sample "valid-$layout" $layout
@@ -77,6 +84,29 @@ try {
         }
         Assert-Sentinels $case
         Write-Output "PASS: real release installer layout=$layout, original backup valid, user data preserved"
+        if (@(Get-ChildItem -LiteralPath $case.binDir -Directory -Filter '.nsrp-update-stage-*').Count -ne 0) {
+            throw "Installer left a temporary same-volume staging folder: $layout"
+        }
+    }
+    if ([IO.Path]::GetPathRoot($scratch) -cne [IO.Path]::GetPathRoot($crossVolumeRoot)) {
+        foreach ($layout in @('portable','dist','target')) {
+            $case = New-Sample "C-to-D-$layout" $layout $crossVolumeRoot
+            $result = Run-Installer $case 0
+            if ($result.code -ne 0) { throw "C-to-D $layout update failed: $($result.log)" }
+            $actual = (Get-FileHash (Join-Path $case.binDir 'nsrp.exe') -Algorithm SHA256).Hash
+            $backup = (Get-FileHash (Join-Path $case.task 'backup\nsrp.exe') -Algorithm SHA256).Hash
+            $installed = Get-Content (Join-Path $case.binDir 'nsrp-manifest.json') -Raw | ConvertFrom-Json
+            if ($actual -cne $newHash -or $backup -cne $case.oldHash -or $installed.commit -cne $tag) {
+                throw "C-to-D $layout output or original backup is invalid"
+            }
+            if (@(Get-ChildItem -LiteralPath $case.binDir -Directory -Filter '.nsrp-update-stage-*').Count -ne 0) {
+                throw "Installer left a C-to-D staging folder: $layout"
+            }
+            Assert-Sentinels $case
+            Write-Output "PASS: C-to-D cross-volume real update layout=$layout, original backup valid, data preserved"
+        }
+    } else {
+        Write-Output 'SKIP: C-to-D volume test needs distinct installation/download volumes on this runner'
     }
     $case = New-Sample 'tampered-update' 'portable'
     [IO.File]::AppendAllText((Join-Path $case.package 'nsrp.exe'),'a malicious suffix')
@@ -123,8 +153,28 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $case.task 'update-error.log'))) { throw 'Rollback error log missing' }
         Assert-Sentinels $case
         Write-Output 'PASS: executable rollback after later manifest replacement failure'
+
+        if ([IO.Path]::GetPathRoot($scratch) -cne [IO.Path]::GetPathRoot($crossVolumeRoot)) {
+            $case = New-Sample 'C-to-D-late-failure' 'portable' $crossVolumeRoot
+            Remove-Item -LiteralPath (Join-Path $case.binDir 'nsrp-manifest.json')
+            New-Item -ItemType Directory -Path (Join-Path $case.binDir 'nsrp-manifest.json') | Out-Null
+            $result = Run-Installer $case 0
+            if ($result.code -eq 0) { throw 'C-to-D delayed manifest failure was accepted' }
+            if ((Get-FileHash (Join-Path $case.binDir 'nsrp.exe') -Algorithm SHA256).Hash -cne $case.oldHash) {
+                throw 'C-to-D rollback did not restore the old executable'
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $case.task 'update-error.log'))) {
+                throw 'C-to-D rollback did not leave an update diagnostic log'
+            }
+            if (@(Get-ChildItem -LiteralPath $case.binDir -Directory -Filter '.nsrp-update-stage-*').Count -ne 0) {
+                throw 'C-to-D rollback left an unused same-volume staging directory'
+            }
+            Assert-Sentinels $case
+            Write-Output 'PASS: C-to-D different-volume late failure restored old executable and preserved user data'
+        }
     }
     Write-Output 'AUTO_UPDATE_SANDBOX_QA=PASS'
 } finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $crossVolumeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

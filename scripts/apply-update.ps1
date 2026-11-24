@@ -9,7 +9,11 @@ $base = [IO.Path]::GetFullPath($BaseDir)
 $task = [IO.Path]::GetFullPath($TaskDir)
 $package = Join-Path $task 'package'
 $backupRoot = Join-Path $task 'backup'
-$pendingRoot = Join-Path $task 'pending'
+# LOCALAPPDATA is often C:, while the installed executable can be on D:.
+# File.Replace requires its source, destination and backup on ONE volume.
+# Stage beside the installation, not in the downloaded package directory.
+$pendingRoot = Join-Path $base ('.nsrp-update-stage-' + [guid]::NewGuid().ToString('N'))
+$localBackupRoot = Join-Path $pendingRoot 'backup'
 # Keep this helper independent of Get-FileHash module autoloading. Windows
 # PowerShell launched from pwsh/other shells may inherit a PSModulePath that
 # does not expose the cmdlet even though the .NET SHA-256 API is available.
@@ -27,6 +31,7 @@ function Get-NsrpSha256([string]$filePath) {
 # keys, screenshots, icons, torrent state and downloads.
 $files = @('nsrp.exe', 'nsrp-manifest.json')
 $applied = @()
+$rollbackErrors = @()
 try {
     # Reverify staged content immediately before applying it. The package
     # could have changed after the download-and-confirm stage.
@@ -56,7 +61,10 @@ try {
         $pending = Join-Path $pendingRoot $relative
         $parent = Split-Path -Parent $pending
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
-        Copy-Item -LiteralPath $source -Destination $pending -Force
+        Copy-Item -LiteralPath $source -Destination $pending
+        if ((Get-NsrpSha256 $pending) -cne (Get-NsrpSha256 $source)) {
+            throw "Same-volume staged update verification failed: $relative"
+        }
     }
     # The parent GUI waits for this handshake before exiting. At this point
     # the helper has validated and staged both files and is ready to wait
@@ -85,7 +93,7 @@ try {
     foreach ($relative in $files) {
         $target = Join-Path $base $relative
         $pending = Join-Path $pendingRoot $relative
-        $backup = Join-Path $backupRoot $relative
+        $backup = Join-Path $localBackupRoot $relative
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         New-Item -ItemType Directory -Path (Split-Path -Parent $backup) -Force | Out-Null
         $replaced = $false
@@ -103,23 +111,37 @@ try {
                 Start-Sleep -Milliseconds 500
             }
         }
+        # Retain an audit backup beside the downloaded task, but use the
+        # install-volume backup for any atomic rollback. Keep this outside
+        # the retry loop so archival failures cannot be silently swallowed.
+        if ([IO.File]::Exists($backup)) {
+            $recordedBackup = Join-Path $backupRoot $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $recordedBackup) -Force | Out-Null
+            Copy-Item -LiteralPath $backup -Destination $recordedBackup
+            if ((Get-NsrpSha256 $recordedBackup) -cne (Get-NsrpSha256 $backup)) {
+                throw "Update backup verification failed: $relative"
+            }
+        }
     }
     $installedHash = Get-NsrpSha256 (Join-Path $base 'nsrp.exe')
     if ($installedHash -cne $sourceHash) {
         throw 'Installed NSRP executable SHA-256 differs from the verified update.'
     }
+    if ((Get-NsrpSha256 (Join-Path $base 'nsrp-manifest.json')) -cne
+        (Get-NsrpSha256 $sourceManifest)) {
+        throw 'Installed NSRP manifest SHA-256 differs from the verified update.'
+    }
 } catch {
     $failure = $_
-    $rollbackErrors = @()
     [array]::Reverse($applied)
     foreach ($relative in $applied) {
         $target = Join-Path $base $relative
-        $backup = Join-Path $backupRoot $relative
+        $backup = Join-Path $localBackupRoot $relative
         try {
             if ([IO.File]::Exists($backup)) {
                 if ([IO.File]::Exists($target)) {
                     # .NET Framework's File.Replace needs a non-null backup.
-                    $failedVersion = Join-Path (Join-Path $task 'failed') $relative
+                    $failedVersion = Join-Path (Join-Path $pendingRoot 'failed') $relative
                     New-Item -ItemType Directory -Path (Split-Path -Parent $failedVersion) -Force | Out-Null
                     [IO.File]::Replace($backup, $target, $failedVersion, $true)
                 } else {
@@ -160,7 +182,8 @@ try {
     Write-Error $reason
     exit 1
 } finally {
-    if (Test-Path -LiteralPath $pendingRoot) {
+    # Keep installation-volume backups if rollback itself failed.
+    if ($rollbackErrors.Count -eq 0 -and (Test-Path -LiteralPath $pendingRoot)) {
         Remove-Item -LiteralPath $pendingRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
