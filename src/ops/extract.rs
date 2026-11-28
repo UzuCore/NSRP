@@ -369,7 +369,9 @@ pub fn extract(
                 output_path.as_os_str().to_owned(),
             ];
             let tool = run_tool(hactool, args, Some(workspace), cancel)?;
-            let mut has_output = unpack_has_output(&unpack_dir);
+            // An external tool can fail after producing some files. Never
+            // publish those files as a successfully extracted NCA.
+            let mut has_output = tool.success() && unpack_has_output(&unpack_dir);
             let mut detail = tool.combined();
 
             if (!tool.success() || !has_output)
@@ -390,10 +392,16 @@ pub fn extract(
                     .parent()
                     .unwrap_or_else(|| Path::new("."))
                     .join("title.keys");
+                let key_stage = tempfile::Builder::new()
+                    .prefix("nsrp_extract_external_keys_")
+                    .tempdir_in(workspace)?;
                 if title_keys.is_file() {
+                    let staged_keys = key_stage.path().join("title.keys");
+                    fs::copy(&title_keys, &staged_keys)?;
+                    sanitize_title_keys_file(&staged_keys)?;
                     net_args.extend([
                         OsString::from("--titlekeys"),
-                        title_keys.as_os_str().to_owned(),
+                        staged_keys.as_os_str().to_owned(),
                     ]);
                 }
                 net_args.extend([

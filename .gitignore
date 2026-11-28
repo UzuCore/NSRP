@@ -19,6 +19,7 @@
 **/keys.dat
 **/config.json
 **/nsrp_config.json
+/nsrp-manifest.json
 **/*.env
 **/.env*
 **/*.pem

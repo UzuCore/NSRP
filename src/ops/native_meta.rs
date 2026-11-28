@@ -74,15 +74,36 @@ fn read_cnmt_from_nca_reader<R: Read + Seek>(
             _ => continue,
         };
         let mut plaintext = SectionReader::new(&mut *file, nca_offset, section, section_key);
-        // SHA-256 PartitionFS sections normally begin with a 0x20-byte
-        // master hash. Synthetic/simple PartitionFS sections may not.
-        for pfs_base in [0u64, 0x20] {
-            if pfs_base >= section.size {
+        // Use the actual hierarchical SHA-256 PartitionFS data-layer
+        // descriptor when present. Older simple metadata fixtures may
+        // lack the descriptor, so retain their narrowly bounded probes.
+        let fs_at = 0x400 + section.index * 0x200;
+        let fs = &info.decrypted_header[fs_at..fs_at + 0x200];
+        let declared_offset = u64::from_le_bytes(fs[0x40..0x48].try_into()?);
+        let declared_size = u64::from_le_bytes(fs[0x48..0x50].try_into()?);
+        let mut regions = [
+            (0u64, section.size),
+            (0x20, section.size.saturating_sub(0x20)),
+        ];
+        let region_count =
+            if fs[2] == 1 && fs[3] == 2 && (declared_offset != 0 || declared_size != 0) {
+                if declared_size < 16
+                    || declared_offset
+                        .checked_add(declared_size)
+                        .is_none_or(|end| end > section.size)
+                {
+                    bail!("CNMT PartitionFS descriptor exceeds its NCA section");
+                }
+                regions[0] = (declared_offset, declared_size);
+                1
+            } else {
+                2
+            };
+        for &(pfs_base, pfs_size) in &regions[..region_count] {
+            if pfs_size < 16 {
                 continue;
             }
-            let Ok(pfs) =
-                Pfs0Index::parse_reader(&mut plaintext, pfs_base, section.size - pfs_base)
-            else {
+            let Ok(pfs) = Pfs0Index::parse_reader(&mut plaintext, pfs_base, pfs_size) else {
                 continue;
             };
             let Some(entry) = pfs
@@ -231,6 +252,12 @@ mod tests {
             );
         }
         header[0x404] = 3;
+        if pfs_offset > 0x20 {
+            header[0x402] = 1;
+            header[0x403] = 2;
+            header[0x440..0x448].copy_from_slice(&(pfs_offset as u64).to_le_bytes());
+            header[0x448..0x450].copy_from_slice(&(pfs_bytes.len() as u64).to_le_bytes());
+        }
         header[0x540..0x548].copy_from_slice(&[0x12, 0x34, 0x56, 0x78, 0x90, 0xab, 0xcd, 0xef]);
         nca_xts_transform(&mut header, keys.prod_key("header_key").unwrap(), true)?;
 
@@ -278,6 +305,12 @@ mod tests {
     #[test]
     fn reads_sha256_partitionfs_cnmt_with_master_hash_prefix() -> Result<()> {
         verify_native_cnmt_with_pfs_offset(0x20, false)
+    }
+
+    #[test]
+    fn stage88_reads_declared_partitionfs_data_layer_beyond_legacy_offsets() -> Result<()> {
+        verify_native_cnmt_with_pfs_offset(0x1800, false)?;
+        verify_native_cnmt_with_pfs_offset(0x4800, true)
     }
 
     #[test]

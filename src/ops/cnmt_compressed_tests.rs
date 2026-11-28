@@ -18,6 +18,74 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
+#[test]
+#[ignore = "requires user-authorized local package samples and their runtime keys"]
+fn stage89_native_metadata_real_package_matrix() -> Result<()> {
+    let root =
+        PathBuf::from(std::env::var_os("NSRP_STAGE89_SAMPLE_ROOT").context("Missing sample root")?);
+    let prod = PathBuf::from(
+        std::env::var_os("NSRP_STAGE89_PROD_KEYS").context("Missing runtime key path")?,
+    );
+    let keys = KeySet::load_with_local_title_keys(&prod)?;
+    let cancel = AtomicBool::new(false);
+    let mut checked = 0usize;
+    let mut large = 0usize;
+    let mut failures = Vec::new();
+    for item in walkdir::WalkDir::new(&root).follow_links(false) {
+        let item = item?;
+        let path = item.path();
+        if !item.file_type().is_file()
+            || !path.extension().and_then(|s| s.to_str()).is_some_and(|s| {
+                matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "nsp" | "nsz" | "xci" | "xcz"
+                )
+            })
+        {
+            continue;
+        }
+        let before = fs::metadata(path)?;
+        let outcome = (|| -> Result<usize> {
+            let entries = crate::ops::container::list_entries(path, true)?;
+            let mut count = 0usize;
+            for entry in entries
+                .iter()
+                .filter(|entry| is_cnmt_container_entry(&entry.name))
+            {
+                let info = read_cnmt_from_container_entry(path, entry, &keys, &cancel)?;
+                ensure!(!info.contents.is_empty(), "Empty real CNMT content table");
+                count += 1;
+            }
+            ensure!(count > 0, "No readable CNMT");
+            Ok(count)
+        })();
+        let after = fs::metadata(path)?;
+        assert_eq!(before.len(), after.len());
+        assert_eq!(before.modified()?, after.modified()?);
+        match outcome {
+            Ok(count) => {
+                checked += 1;
+                large += usize::from(before.len() > (4u64 << 30));
+                println!(
+                    "STAGE89_NATIVE_METADATA_PASS bytes={} cnmt_count={count} file={}",
+                    before.len(),
+                    path.display()
+                );
+            }
+            Err(error) => {
+                failures.push(format!("{}: {error:#}", path.display()));
+            }
+        }
+    }
+    ensure!(checked > 0, "No authorized samples could be read");
+    ensure!(
+        failures.is_empty(),
+        "Real sample metadata failures: {failures:?}"
+    );
+    println!("STAGE89_REAL_NATIVE_METADATA_SUMMARY samples={checked} over_4gib={large}");
+    Ok(())
+}
+
 pub(crate) struct Fixture {
     pub keys: KeySet,
     pub nca: Vec<u8>,

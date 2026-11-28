@@ -307,8 +307,14 @@ pub(crate) fn build_xci_auto_verified(
 /// The generated HFS0 must also contain a readable secure partition.
 fn validate_xci_payload(path: &Path, expected: &[(String, u64)]) -> Result<()> {
     let size = fs::metadata(path)?.len();
-    ensure!(size >= 1024 * 1024, "XCI output is too small");
-    let root = hfs0::find_xci_root(path)?;
+    // Independent hacbuild references with 1-3 secure NCAs can be smaller
+    // than 1 MiB. Require a real header-root binding for small cards rather
+    // than rejecting a correctly structured small image by size alone.
+    let (root, header_base) = hfs0::find_xci_root_with_header_base(path)?;
+    ensure!(
+        size >= 1024 * 1024 || header_base == Some(0),
+        "Small XCI has no valid gamecard header/root binding"
+    );
     let secure = root
         .entry("secure")
         .context("generated XCI has no secure HFS0 partition")?;
@@ -894,6 +900,45 @@ mod tests {
                     .starts_with("nsrp_verified_xcz_")
             })
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn stage84_small_native_card_is_published_without_external_helpers() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("one.nca");
+        let data = vec![0x52u8; 320 * 1024];
+        fs::write(&path, &data)?;
+        let output = temp.path().join("small.xci");
+        let expected = vec![("one.nca".to_owned(), data.len() as u64)];
+        let sources = vec![native_xci::XciSource {
+            name: "one.nca".into(),
+            path,
+            offset: 0,
+            length: data.len() as u64,
+        }];
+        let preset = include_bytes!("../../bin/game_info_preset.ini");
+        let cancel = AtomicBool::new(false);
+        assert!(build_xci_native_sources_verified(
+            &output, &expected, &sources, preset, &cancel
+        )?);
+        assert!(fs::metadata(&output)?.len() < 1024 * 1024);
+        let virtual_output = temp.path().join("virtual.xci");
+        assert!(build_xci_virtual_verified(
+            &virtual_output,
+            &expected,
+            &expected,
+            preset,
+            &cancel,
+            |_, file, _| {
+                file.write_all(&data)?;
+                Ok(())
+            }
+        )?);
+        assert_eq!(
+            fs::read(output)?[0x100..],
+            fs::read(virtual_output)?[0x100..]
+        );
         Ok(())
     }
 

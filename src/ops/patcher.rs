@@ -1115,26 +1115,46 @@ fn extract_program_staged(
         }))
     })()
     .unwrap_or(false);
-    if let Some(base) = base_nca
-        && (!hactoolnet.is_file()
+    // Ordinary Programs and ExeFS-only updates can use native extraction.
+    // Keep the measured large, uncompressed BKTR RomFS fallback policy.
+    let try_native = base_nca.is_none_or(|base| {
+        romfs.is_none()
+            || !hactoolnet.is_file()
             || fs::metadata(base).is_ok_and(|m| m.len() <= SMALL_NATIVE_BKTR_BASE)
-            || compressed_bktr)
-    {
+            || compressed_bktr
+    });
+    if try_native {
         // Stage in an isolated folder so an unsupported layout cannot
         // contaminate the legacy fallback output.
         let native_result = (|| -> Result<()> {
             let staging = tempfile::Builder::new()
-                .prefix("nsrp_bktr_native_")
-                .tempdir_in(nca.parent().unwrap_or_else(|| Path::new(".")))?;
-            native_fs::unpack_patched_nca(
-                nca,
-                base,
-                staging.path(),
-                keys,
-                cancel,
-                romfs.is_some(),
-                exefs.is_some(),
-            )?;
+                .prefix("nsrp_program_native_")
+                .tempdir_in(
+                    romfs
+                        .or(exefs)
+                        .and_then(Path::parent)
+                        .context("Missing Program output parent")?,
+                )?;
+            if let Some(base) = base_nca {
+                native_fs::unpack_patched_nca(
+                    nca,
+                    base,
+                    staging.path(),
+                    keys,
+                    cancel,
+                    romfs.is_some(),
+                    exefs.is_some(),
+                )?;
+            } else {
+                native_fs::unpack_nca_selected(
+                    nca,
+                    staging.path(),
+                    keys,
+                    cancel,
+                    romfs.is_some(),
+                    exefs.is_some(),
+                )?;
+            }
             let mut outputs = Vec::new();
             for (name, target) in [("romfs", romfs), ("exefs", exefs)] {
                 if let Some(target) = target {
@@ -1143,8 +1163,9 @@ fn extract_program_staged(
                         || fs::read_dir(&staged)?.next().is_none()
                         || (target.exists() && fs::read_dir(target)?.next().is_some())
                     {
-                        bail!("BKTR native staging incomplete or destination not empty");
+                        bail!("Native Program staging incomplete or destination not empty");
                     }
+                    validate_staged_program(&staged, cancel)?;
                     outputs.push((staged, target));
                 }
             }
@@ -1161,6 +1182,14 @@ fn extract_program_staged(
         }
         if cancel.load(Ordering::Relaxed) {
             bail!("작업이 중단되었습니다");
+        }
+        // These directories belong to the outer private extraction stage.
+        // A failed second rename must not mix native files into fallback.
+        for path in [romfs, exefs].into_iter().flatten() {
+            if path.exists() {
+                fs::remove_dir_all(path)?;
+            }
+            fs::create_dir_all(path)?;
         }
     }
 
@@ -1212,10 +1241,7 @@ fn extract_program_staged(
     }
     args.push(nca.as_os_str().to_owned());
     let tool = run_tool(hactool, args, nca.parent(), cancel)?;
-    let has_files = [romfs, exefs]
-        .into_iter()
-        .flatten()
-        .any(|path| count_files(path) > 0);
+    let has_files = requested_program_outputs_complete(romfs, exefs, cancel);
     if tool.success() && has_files {
         return Ok(());
     }
@@ -1292,14 +1318,23 @@ fn extract_program_with_hactoolnet(
     if !tool.success() {
         bail!("LibHac NCA 추출 실패: {}", tool.combined());
     }
-    let has_files = [romfs, exefs]
-        .into_iter()
-        .flatten()
-        .any(|path| count_files(path) > 0);
+    let has_files = requested_program_outputs_complete(romfs, exefs, cancel);
     if !has_files {
         bail!("LibHac NCA 추출 결과가 비어 있습니다");
     }
     Ok(())
+}
+
+fn requested_program_outputs_complete(
+    romfs: Option<&Path>,
+    exefs: Option<&Path>,
+    cancel: &AtomicBool,
+) -> bool {
+    (romfs.is_some() || exefs.is_some())
+        && [romfs, exefs]
+            .into_iter()
+            .flatten()
+            .all(|path| validate_staged_program(path, cancel).is_ok())
 }
 
 fn apply_folder_patch(
@@ -1920,6 +1955,87 @@ mod stage53_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage82_native_program_exefs_without_external_tools() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let source = root.path().join("main.npdm");
+        fs::write(&source, b"stage82 synthetic ExeFS")?;
+        let pfs_path = root.path().join("partition.pfs0");
+        build_from_paths(&[("main.npdm".into(), source)], &pfs_path)?;
+        let pfs = fs::read(pfs_path)?;
+        let mut keys = KeySet::default();
+        keys.prod.insert("header_key".into(), (0..32u8).collect());
+        let offset = 0x4000usize;
+        let size = pfs.len().div_ceil(0x200) * 0x200;
+        let mut data = vec![0u8; offset + size];
+        data[0x200..0x204].copy_from_slice(b"NCA3");
+        data[0x240..0x244].copy_from_slice(&((offset / 0x200) as u32).to_le_bytes());
+        data[0x244..0x248].copy_from_slice(&(((offset + size) / 0x200) as u32).to_le_bytes());
+        data[0x402] = 1;
+        data[0x403] = 2;
+        data[0x404] = 1;
+        data[0x448..0x450].copy_from_slice(&(pfs.len() as u64).to_le_bytes());
+        crate::crypto::nca_xts_transform(
+            &mut data[..NCA_XTS_HEADER_SIZE],
+            keys.prod_key("header_key").unwrap(),
+            true,
+        )?;
+        data[offset..offset + pfs.len()].copy_from_slice(&pfs);
+        let nca = root.path().join("program.nca");
+        fs::write(&nca, &data)?;
+        let exefs = root.path().join("selected");
+        extract_program(
+            &nca,
+            None,
+            None,
+            Some(&exefs),
+            &root.path().join("no-tools/hactool.exe"),
+            &root.path().join("no-prod.keys"),
+            &keys,
+            &AtomicBool::new(false),
+        )?;
+        assert_eq!(
+            fs::read(exefs.join("main.npdm"))?,
+            b"stage82 synthetic ExeFS"
+        );
+        assert_eq!(fs::read(nca)?, data);
+        Ok(())
+    }
+
+    #[test]
+    fn stage83_partial_external_output_never_counts_as_complete() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let romfs = root.path().join("romfs");
+        let exefs = root.path().join("exefs");
+        fs::create_dir(&romfs)?;
+        fs::create_dir(&exefs)?;
+        fs::write(romfs.join("part.bin"), b"partial")?;
+        let cancel = AtomicBool::new(false);
+        assert!(!requested_program_outputs_complete(
+            Some(&romfs),
+            Some(&exefs),
+            &cancel
+        ));
+        assert!(requested_program_outputs_complete(
+            Some(&romfs),
+            None,
+            &cancel
+        ));
+        fs::write(exefs.join("main.npdm"), b"complete")?;
+        assert!(requested_program_outputs_complete(
+            Some(&romfs),
+            Some(&exefs),
+            &cancel
+        ));
+        cancel.store(true, Ordering::Relaxed);
+        assert!(!requested_program_outputs_complete(
+            Some(&romfs),
+            Some(&exefs),
+            &cancel
+        ));
+        Ok(())
+    }
 
     #[test]
     fn stage47_unsupported_bktr_without_libhac_preserves_existing_output() -> Result<()> {

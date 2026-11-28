@@ -96,6 +96,46 @@ pub(crate) fn unpack_nca_region(
     keys: &KeySet,
     cancel: &AtomicBool,
 ) -> Result<NativeFsStats> {
+    unpack_nca_region_selected(
+        container, nca_base, nca_size, output, keys, cancel, true, true,
+    )
+}
+
+/// Extract only requested Program filesystems, avoiding a full RomFS copy
+/// when the caller needs just ExeFS.
+pub(crate) fn unpack_nca_selected(
+    nca: &Path,
+    output: &Path,
+    keys: &KeySet,
+    cancel: &AtomicBool,
+    want_romfs: bool,
+    want_exefs: bool,
+) -> Result<NativeFsStats> {
+    unpack_nca_region_selected(
+        nca,
+        0,
+        fs::metadata(nca)?.len(),
+        output,
+        keys,
+        cancel,
+        want_romfs,
+        want_exefs,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn unpack_nca_region_selected(
+    container: &Path,
+    nca_base: u64,
+    nca_size: u64,
+    output: &Path,
+    keys: &KeySet,
+    cancel: &AtomicBool,
+    want_romfs: bool,
+    want_exefs: bool,
+) -> Result<NativeFsStats> {
+    ensure!(want_romfs || want_exefs, "No NCA filesystem requested");
+    ensure_not_cancelled(cancel)?;
     let mut file = File::open(container)?;
     let container_size = file.metadata()?.len();
     ensure!(
@@ -117,6 +157,7 @@ pub(crate) fn unpack_nca_region(
     // In update Programs, an ExeFS section often precedes a BKTR RomFS:
     // extracting ExeFS first would just waste time before fallback.
     for section in &info.sections {
+        ensure_not_cancelled(cancel)?;
         ensure!(
             section
                 .offset
@@ -126,6 +167,9 @@ pub(crate) fn unpack_nca_region(
         );
         let start = 0x400 + section.index * 0x200;
         let fs = &info.decrypted_header[start..start + 0x200];
+        if (!want_romfs && fs[2] == 0) || (!want_exefs && fs[2] == 1) {
+            continue;
+        }
         ensure!(
             matches!(fs[4], 1 | 3)
                 && fs[4] == section.encryption_type
@@ -136,6 +180,7 @@ pub(crate) fn unpack_nca_region(
     let mut stats = NativeFsStats::default();
 
     for section in &info.sections {
+        ensure_not_cancelled(cancel)?;
         ensure!(
             section
                 .offset
@@ -145,6 +190,9 @@ pub(crate) fn unpack_nca_region(
         );
         let fs_offset = 0x400 + section.index * 0x200;
         let fs_header = &info.decrypted_header[fs_offset..fs_offset + 0x200];
+        if (!want_romfs && fs_header[2] == 0) || (!want_exefs && fs_header[2] == 1) {
+            continue;
+        }
         let crypt_type = fs_header[4];
         // Encryption type 5/6 and BKTR require a layer-aware reader.
         // The plain AES-CTR reader must NEVER be used for those sections.
@@ -163,8 +211,8 @@ pub(crate) fn unpack_nca_region(
             output,
             cancel,
             &mut stats,
-            true,
-            true,
+            want_romfs,
+            want_exefs,
         )?;
     }
     ensure!(stats.total() > 0, "native NCA produced no files");
@@ -1656,6 +1704,45 @@ mod tests {
             fs::read(dest.join("exefs/main.npdm"))?,
             b"native-exefs-test"
         );
+        let selected = temp.path().join("selected_exefs");
+        let selected_stats = unpack_nca_selected(
+            &nca_path,
+            &selected,
+            &keys,
+            &AtomicBool::new(false),
+            false,
+            true,
+        )?;
+        assert_eq!(selected_stats.pfs0_files, 1);
+        assert_eq!(
+            fs::read(selected.join("exefs/main.npdm"))?,
+            b"native-exefs-test"
+        );
+        assert!(!selected.join("romfs").exists());
+        assert!(
+            unpack_nca_selected(
+                &nca_path,
+                &temp.path().join("only_romfs"),
+                &keys,
+                &AtomicBool::new(false),
+                true,
+                false
+            )
+            .is_err()
+        );
+        assert!(!temp.path().join("only_romfs").exists());
+        assert!(
+            unpack_nca_selected(
+                &nca_path,
+                &temp.path().join("cancelled"),
+                &keys,
+                &AtomicBool::new(true),
+                false,
+                true
+            )
+            .is_err()
+        );
+        assert!(!temp.path().join("cancelled").exists());
         // The same encrypted NCA embedded inside another container must
         // decode with an explicit bounded base offset, without extracting it.
         let raw = fs::read(&nca_path)?;

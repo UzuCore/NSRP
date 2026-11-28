@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::{
     env, fs,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -178,7 +178,21 @@ fn ensure_embedded_file(path: &Path, bytes: &[u8]) -> Result<()> {
     if current_matches {
         return Ok(());
     }
-    fs::write(path, bytes).with_context(|| format!("내장 리소스 추출 실패: {}", path.display()))
+    // Multiple GUI instances can initialize the runtime concurrently. Never
+    // truncate a cached helper in place: publish a fully written sibling.
+    let parent = path
+        .parent()
+        .context("Embedded runtime path has no parent")?;
+    let mut stage = tempfile::Builder::new()
+        .prefix(".nsrp-resource-")
+        .tempfile_in(parent)?;
+    stage.write_all(bytes)?;
+    stage.as_file_mut().sync_all()?;
+    stage
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("내장 리소스 추출 실패: {}", path.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -211,6 +225,18 @@ mod tests {
         bytes[65536] ^= 0x5a;
         ensure_embedded_file(&target, &bytes)?;
         assert_eq!(fs::read(&target)?, bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn stage94_failed_embedded_publication_does_not_truncate_existing_target() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let target = temp.path().join("embedded.exe");
+        fs::create_dir(&target)?;
+        fs::write(target.join("keep.bin"), b"existing user file")?;
+        assert!(ensure_embedded_file(&target, b"replacement").is_err());
+        assert_eq!(fs::read(target.join("keep.bin"))?, b"existing user file");
+        assert_eq!(fs::read_dir(temp.path())?.count(), 1);
         Ok(())
     }
 

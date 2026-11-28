@@ -31,6 +31,34 @@ history/QA in the parent workspace is **not** part of the GitHub source.
 - `src/disk_space.rs`: early output free-space checks.
 - `src/workspace.rs`: embedded resources and per-user local workspaces;
   data discovery prefers the actual private key location over source assets.
+  Changed runtime resources are written to a synced same-directory temporary
+  file before atomic publication; an interrupted write cannot truncate a
+  previously installed helper.
+
+## Native-first routing and remaining compatibility boundary
+
+| Operation | Native path | Compatibility path retained |
+| --- | --- | --- |
+| CNMT inspection | Bounded NCA/NCZ region reader, declared PartitionFS data-layer bounds | hactool / LibHac for unsupported metadata storage |
+| Ordinary Program extraction | Selective RomFS/ExeFS reader in `native_fs.rs` | hactool / LibHac for unsupported filesystems |
+| BKTR Program extraction | Native verified overlays, including ExeFS-only selection and supported compressed storage | LibHac for unsupported variants and the existing large uncompressed RomFS policy |
+| Control metadata and RomFS | Native NCA region reader | hactool / LibHac for unsupported sections |
+| CNMT payload edits | Existing title/patch path | hactool / LibHac plaintext extraction remains |
+| Default XCI packaging | Native direct or virtual streaming, including one to three secure NCAs | hacbuild for custom/unverified layout or capacity |
+
+The external tools are still embedded and licensed; native-first is not a
+claim of complete external-tool independence. Requested Program trees must
+all contain verified regular files before publication. A failed external
+extract must never be treated as a successful partial extraction.
+
+The PFS0 index validates the full table size against its bounded container
+before allocating entry and string tables. Sparse QA files exercise 64-bit
+offsets without writing a full multi-GiB archive. These tests complement,
+rather than replace, actual package and emulator compatibility checks.
+
+NSL maintains a separate vendored `nsrp-core`. Its integration API, patches
+and build requirements must be reviewed and tested before selectively porting
+new NSRP changes; replacing that fork wholesale is not a supported update.
 
 ## Distribution boundary
 

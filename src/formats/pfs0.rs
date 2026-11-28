@@ -76,6 +76,12 @@ impl Pfs0Index {
         base: u64,
         container_size: u64,
     ) -> Result<Self> {
+        let limit = base
+            .checked_add(container_size)
+            .context("PFS0 size overflow")?;
+        if container_size < 16 {
+            bail!("PFS0 header exceeds its bounded region");
+        }
         reader.seek(SeekFrom::Start(base))?;
         let mut magic = [0u8; 4];
         reader.read_exact(&mut magic)?;
@@ -92,15 +98,16 @@ impl Pfs0Index {
             bail!("PFS0 문자열 테이블이 너무 큽니다");
         }
 
+        let table_size = 16u64 + u64::from(count) * 24 + u64::from(string_size);
+        if table_size > container_size {
+            bail!("PFS0 index exceeds its bounded region");
+        }
+
         let mut raw = vec![0u8; count as usize * 24];
         reader.read_exact(&mut raw)?;
         let mut strings = vec![0u8; string_size as usize];
         reader.read_exact(&mut strings)?;
         let data_start = reader.stream_position()?;
-        let limit = base
-            .checked_add(container_size)
-            .context("PFS0 크기 오버플로")?;
-
         let mut entries = Vec::with_capacity(count as usize);
         let mut seen = HashSet::new();
         for i in 0..count as usize {
@@ -792,6 +799,71 @@ mod tests {
                 .filter_map(Result::ok)
                 .all(|file| !file.file_name().to_string_lossy().ends_with(".partial"))
         );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires NTFS sparse-file support in a disposable QA directory"]
+    fn stage89_sparse_36gib_pfs0_4_8_16gib_offsets() -> Result<()> {
+        use std::os::windows::fs::MetadataExt;
+        let owner = tempfile::tempdir()?;
+        let path = owner.path().join("sparse.nsp");
+        File::create(&path)?;
+        let status = std::process::Command::new("fsutil.exe")
+            .arg("sparse")
+            .arg("setflag")
+            .arg(&path)
+            .status()?;
+        ensure!(
+            status.success() && fs::metadata(&path)?.file_attributes() & 0x200 != 0,
+            "Sparse flag unavailable; refusing large file allocation"
+        );
+        let offsets = [4u64 << 30, 8u64 << 30, 16u64 << 30, 34u64 << 30];
+        let mut header = b"PFS0".to_vec();
+        header.write_u32::<LittleEndian>(4)?;
+        let names = b"a.nca\0b.nca\0c.nca\0d.nca\0";
+        header.write_u32::<LittleEndian>(names.len() as u32)?;
+        header.write_u32::<LittleEndian>(0)?;
+        for (i, offset) in offsets.into_iter().enumerate() {
+            header.write_u64::<LittleEndian>(offset)?;
+            header.write_u64::<LittleEndian>(16)?;
+            header.write_u32::<LittleEndian>((i * 6) as u32)?;
+            header.write_u32::<LittleEndian>(0)?;
+        }
+        header.extend_from_slice(names);
+        let mut file = fs::OpenOptions::new().write(true).read(true).open(&path)?;
+        file.set_len(36u64 << 30)?;
+        file.write_all(&header)?;
+        for (i, offset) in offsets.into_iter().enumerate() {
+            file.seek(SeekFrom::Start(header.len() as u64 + offset))?;
+            file.write_all(&[i as u8 + 1; 16])?;
+        }
+        file.sync_all()?;
+        let index = Pfs0Index::parse(&path)?;
+        for (i, entry) in index.entries.iter().enumerate() {
+            assert_eq!(entry.offset, offsets[i]);
+            assert_eq!(index.read_entry(&path, entry)?, vec![i as u8 + 1; 16]);
+        }
+        assert!(
+            Pfs0Index::parse_reader(&mut file, 0, header.len() as u64 + offsets[3] + 15).is_err()
+        );
+        println!("STAGE89_SPARSE_REAL_36GIB_OFFSET_PASS");
+        Ok(())
+    }
+
+    #[test]
+    fn stage87_pfs0_rejects_oversized_index_before_allocating_or_reading_it() -> Result<()> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"PFS0");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&MAX_STRING_TABLE.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        let mut reader = std::io::Cursor::new(bytes);
+        let error = Pfs0Index::parse_reader(&mut reader, 0, 16).unwrap_err();
+        assert!(error.to_string().contains("bounded region"));
+        assert_eq!(reader.position(), 16);
+        assert!(Pfs0Index::parse_reader(&mut reader, u64::MAX - 1, 16).is_err());
         Ok(())
     }
 

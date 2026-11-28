@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs::{self, File, OpenOptions},
-    io::{BufReader, Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -126,7 +126,7 @@ fn inspect_supported_sources(
             .context("Native XCI file-size overflow")?;
         files.push(source.clone());
     }
-    if nca_count < 4 {
+    if nca_count == 0 {
         return Ok(None);
     }
     // Up to the independently observed 32 GiB tier is permitted only for
@@ -189,7 +189,7 @@ fn inspect_virtual_sources(
     sources: &[(String, u64)],
     game_info: &[u8],
 ) -> Result<Option<Vec<usize>>> {
-    if game_info != GAME_INFO_PRESET || sources.len() < 4 || sources.len() > 16_384 {
+    if game_info != GAME_INFO_PRESET || sources.is_empty() || sources.len() > 16_384 {
         return Ok(None);
     }
     let mut names = HashSet::new();
@@ -219,7 +219,7 @@ fn inspect_virtual_sources(
             .checked_add(*size)
             .context("Native XCI virtual decoded-size overflow")?;
     }
-    if ncas < 4 || verified_card_tier(total).is_none() {
+    if ncas == 0 || verified_card_tier(total).is_none() {
         return Ok(None);
     }
     let mut order = (0..sources.len()).collect::<Vec<_>>();
@@ -254,12 +254,14 @@ fn pad_to_sector(file: &mut File) -> Result<()> {
     Ok(())
 }
 
-fn copy_file_verified(file: &mut File, source: &XciSource, cancel: &AtomicBool) -> Result<()> {
-    let mut input = BufReader::with_capacity(1024 * 1024, File::open(&source.path)?);
+fn copy_file_verified(
+    file: &mut File,
+    source: &XciSource,
+    cancel: &AtomicBool,
+    buf: &mut [u8],
+) -> Result<()> {
+    let mut input = File::open(&source.path)?;
     input.seek(SeekFrom::Start(source.offset))?;
-    // Main GUI/CLI threads on Windows can have only a 1-MiB stack. Never
-    // allocate this copy buffer on the stack (STATUS_STACK_OVERFLOW).
-    let mut buf = vec![0u8; 1024 * 1024];
     let mut copied = 0u64;
     while copied < source.length {
         ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
@@ -309,8 +311,11 @@ fn build_default_xci_verified_files(
         .iter()
         .map(|entry| entry.name.clone())
         .collect::<Vec<_>>();
+    // Reuse one heap buffer for all NCA ranges instead of allocating a
+    // BufReader and a second 1 MiB buffer for every individual entry.
+    let mut buffer = vec![0u8; 1024 * 1024];
     build_default_xci_streamed_contents(staged, &names, cancel, |index, output| {
-        copy_file_verified(output, &files[index], cancel)
+        copy_file_verified(output, &files[index], cancel, &mut buffer)
     })
 }
 
@@ -470,6 +475,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufReader;
 
     #[test]
     fn stage44_card_capacity_boundaries_have_explicit_verified_tiers() {
@@ -813,6 +819,38 @@ mod tests {
         handle
             .join()
             .map_err(|_| anyhow::anyhow!("Native XCI copy panicked on a small stack"))??;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires independently generated 1-4 NCA hacbuild reference cards"]
+    fn stage84_small_secure_layouts_match_independent_hacbuild() -> Result<()> {
+        let dir = PathBuf::from(
+            std::env::var_os("NSRP_STAGE84_REFERENCE_DIR")
+                .context("Missing independent Stage84 reference directory")?,
+        );
+        let scratch = tempfile::tempdir()?;
+        let cancel = AtomicBool::new(false);
+        for count in 1..=4 {
+            let work = dir.join(format!("work{count}"));
+            let expected = fs::read(dir.join(format!("reference{count}.xci")))?;
+            let path = scratch.path().join(format!("native{count}.xci"));
+            assert!(supports_layout(&work, GAME_INFO_PRESET)?);
+            build_default_xci(&path, &work, &cancel)?;
+            let actual = fs::read(&path)?;
+            assert_eq!(actual.len(), expected.len(), "NCA count {count}");
+            if let Some(at) = (0x100..actual.len()).find(|&i| actual[i] != expected[i]) {
+                bail!(
+                    "NCA count {count}: reference differs at {at:#x}: {:#x} != {:#x}",
+                    actual[at],
+                    expected[at]
+                );
+            }
+            println!(
+                "STAGE84_HACBUILD_REFERENCE_MATCH count={count} bytes={}",
+                actual.len()
+            );
+        }
         Ok(())
     }
 
