@@ -1,6 +1,42 @@
 //! Stage51: read-only event history validation with bounded, synced appends.
 use super::*;
 
+#[test]
+fn stage112_complete_json_without_newline_remains_incomplete_after_interruption() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let (_guard, path) = private_stage(root.path())?;
+    let output = root.path().join("romfs");
+    write_program_publish_journal(&path, &[("romfs", &output)])?;
+    record_program_recovery_phase(&path, ProgramRecoveryPhase::PublicationStarted, None)?;
+    let log = path.join(PROGRAM_RECOVERY_EVENTS);
+    let mut bytes = fs::read(&log)?;
+    assert_eq!(bytes.pop(), Some(b'\n'));
+    fs::write(&log, &bytes)?;
+    assert!(read_program_recovery_events(&path).is_err());
+    assert!(
+        record_program_recovery_phase(&path, ProgramRecoveryPhase::Published, Some(0)).is_err()
+    );
+    assert_eq!(fs::read(&log)?, bytes);
+    assert!(!output.exists());
+    Ok(())
+}
+
+#[test]
+fn stage113_oversized_recovery_records_are_preserved_read_only() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let (_guard, path) = private_stage(root.path())?;
+    let output = root.path().join("romfs");
+    write_program_publish_journal(&path, &[("romfs", &output)])?;
+    let log = path.join(PROGRAM_RECOVERY_EVENTS);
+    let bytes = vec![b'x'; MAX_EVENT_BYTES as usize + 1];
+    fs::write(&log, &bytes)?;
+    assert!(read_program_recovery_events(&path).is_err());
+    assert!(scan_program_recovery(root.path()).is_err());
+    assert_eq!(fs::read(&log)?, bytes);
+    assert!(!output.exists());
+    Ok(())
+}
+
 fn private_stage(root: &Path) -> Result<(tempfile::TempDir, PathBuf)> {
     let guard = tempfile::Builder::new()
         .prefix(PROGRAM_EXTRACT_STAGING_PREFIX)

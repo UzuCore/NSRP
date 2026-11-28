@@ -322,12 +322,20 @@ pub fn parse_cnmt(data: &[u8], cnmt_nca_name: impl Into<String>) -> Result<CnmtI
     let title_id = hex::encode_upper(tid_bytes);
     let version = u32::from_le_bytes(data[8..12].try_into().unwrap());
     let meta_type = ContentMetaType::from_byte(data[0x0c]);
-    let required_system_version = if data.len() >= 0x30 {
-        u64::from_le_bytes(data[0x28..0x30].try_into().unwrap())
-    } else {
-        0
-    };
     let extended_header_size = u16::from_le_bytes(data[0x0e..0x10].try_into().unwrap()) as usize;
+    // Application and Patch store a 32-bit RequiredSystemVersion, followed
+    // by a different 32-bit field. DLC stores RequiredApplicationVersion
+    // in this position instead. Do not consume content rows of short
+    // extended headers or merge adjacent fields into a fictitious version.
+    let required_system_version =
+        if matches!(meta_type, ContentMetaType::Base | ContentMetaType::Update)
+            && extended_header_size >= 12
+            && data.len() >= 0x2c
+        {
+            u64::from(u32::from_le_bytes(data[0x28..0x2c].try_into()?))
+        } else {
+            0
+        };
     let content_count = u16::from_le_bytes(data[0x10..0x12].try_into().unwrap()) as usize;
     let table = 0x20usize
         .checked_add(extended_header_size)
@@ -940,6 +948,32 @@ pub fn select_latest_by_title(cnmts: &[CnmtInfo]) -> Vec<CnmtInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage99_system_version_does_not_read_adjacent_metadata_or_dlc_fields() -> Result<()> {
+        for kind in [0x80, 0x81, 0x82] {
+            let mut data = vec![0u8; 0x20 + 0x18 + 0x38];
+            data[0x0c] = kind;
+            data[0x0e..0x10].copy_from_slice(&0x18u16.to_le_bytes());
+            data[0x10..0x12].copy_from_slice(&1u16.to_le_bytes());
+            data[0x28..0x2c].copy_from_slice(&0x11223344u32.to_le_bytes());
+            data[0x2c..0x30].copy_from_slice(&0x55667788u32.to_le_bytes());
+            let info = parse_cnmt(&data, "synthetic.cnmt.nca")?;
+            assert_eq!(
+                info.required_system_version,
+                if kind == 0x82 { 0 } else { 0x11223344 }
+            );
+        }
+        let mut short = vec![0u8; 0x20 + 0x38];
+        short[0x0c] = 0x80;
+        short[0x10..0x12].copy_from_slice(&1u16.to_le_bytes());
+        short[0x28..0x30].fill(0xff);
+        assert_eq!(
+            parse_cnmt(&short, "short.cnmt.nca")?.required_system_version,
+            0
+        );
+        Ok(())
+    }
 
     #[test]
     fn parses_cnmt_content_table() -> Result<()> {

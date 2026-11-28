@@ -44,9 +44,12 @@ fn decode_nacp_title_table(data: &[u8]) -> Result<(Vec<u8>, usize, u8)> {
     if compressed_size == 0 || compressed_size > NACP_TITLE_AREA_SIZE - 2 {
         bail!("NACP 압축 title 크기가 잘못되었습니다: {compressed_size}");
     }
-    let mut decoder = DeflateDecoder::new(&data[2..2 + compressed_size]);
+    // A corrupt title table must not expand without limit. The format has
+    // exactly 32 fixed-size records, irrespective of the compressed size.
+    let decoder = DeflateDecoder::new(&data[2..2 + compressed_size]);
     let mut decoded = Vec::with_capacity(0x6000);
     decoder
+        .take(0x6001)
         .read_to_end(&mut decoded)
         .context("NACP 압축 title DEFLATE 해제 실패")?;
     if decoded.len() != 0x6000 {
@@ -235,7 +238,12 @@ pub(crate) fn patch_cnmt_nca(
     if old_cnmt.len() != new_cnmt.len() {
         bail!("CNMT length changed");
     }
-    let plain_path = temp_dir.join("cnmt_plain.nca");
+    // Each external attempt writes into a private, initially empty folder.
+    // Stale files or a failed helper's partial output are never accepted.
+    let helper_stage = tempfile::Builder::new()
+        .prefix("nsrp_meta_tool_")
+        .tempdir_in(temp_dir)?;
+    let plain_path = helper_stage.path().join("cnmt_plain.nca");
     let mut args = vec![
         OsString::from("-k"),
         prod_keys.as_os_str().to_owned(),
@@ -246,13 +254,22 @@ pub(crate) fn patch_cnmt_nca(
         args.push(OsString::from(format!("--titlekey={}", hex::encode(key))));
     }
     args.push(encrypted_path.as_os_str().to_owned());
-    let tool = run_tool(hactool, args, Some(temp_dir), cancel)?;
-    if !tool.success() || !plain_path.is_file() {
-        let mut detail = tool.combined();
+    let tool = run_tool(hactool, args, Some(helper_stage.path()), cancel);
+    let mut succeeded = tool.as_ref().is_ok_and(|out| out.success()) && plain_path.is_file();
+    if !succeeded {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("operation cancelled");
+        }
+        let mut detail = match tool {
+            Ok(out) => out.combined(),
+            Err(error) => format!("{error:#}"),
+        };
         if let Some(parent) = hactool.parent() {
             let hactoolnet = parent.join("hactoolnet.exe");
             if hactoolnet.is_file() {
-                let _ = fs::remove_file(&plain_path);
+                if plain_path.exists() {
+                    fs::remove_file(&plain_path)?;
+                }
                 let mut args = vec![
                     OsString::from("-k"),
                     prod_keys.as_os_str().to_owned(),
@@ -267,22 +284,31 @@ pub(crate) fn patch_cnmt_nca(
                     ]);
                 }
                 args.push(encrypted_path.as_os_str().to_owned());
-                let net = run_tool(&hactoolnet, args, Some(temp_dir), cancel)?;
-                if net.success() && plain_path.is_file() {
-                    detail.clear();
-                } else {
+                let net = run_tool(&hactoolnet, args, Some(helper_stage.path()), cancel)?;
+                succeeded = net.success() && plain_path.is_file();
+                if !succeeded {
                     detail = net.combined();
                 }
             }
         }
-        if !plain_path.is_file() {
+        if !succeeded {
             bail!("failed to extract CNMT plaintext: {detail}");
         }
+    }
+    // Metadata NCAs are small. A malformed helper output must not allocate
+    // arbitrary memory or be confused with the selected source metadata.
+    const MAX_META_BYTES: u64 = 64 * 1024 * 1024;
+    let source_len = fs::metadata(encrypted_path)?.len();
+    if source_len > MAX_META_BYTES || fs::metadata(&plain_path)?.len() != source_len {
+        bail!("CNMT plaintext size does not match bounded source");
     }
     let plain = fs::read(&plain_path)?;
     let abs = find_cnmt_payload_offset(&plain).context("CNMT payload not found")?;
     if abs + old_cnmt.len() > plain.len() {
         bail!("CNMT payload out of range");
+    }
+    if plain[abs..abs + old_cnmt.len()] != *old_cnmt {
+        bail!("CNMT plaintext does not match the selected metadata");
     }
     let mut encrypted = fs::read(encrypted_path)?;
     if abs + old_cnmt.len() > encrypted.len() {
@@ -291,8 +317,16 @@ pub(crate) fn patch_cnmt_nca(
     for i in 0..old_cnmt.len() {
         encrypted[abs + i] ^= old_cnmt[i] ^ new_cnmt[i];
     }
+    if cancel.load(Ordering::Relaxed) {
+        bail!("operation cancelled");
+    }
     let output = temp_dir.join("new_meta.cnmt.nca");
-    fs::write(&output, encrypted)?;
+    let mut staged = tempfile::NamedTempFile::new_in(temp_dir)?;
+    staged.write_all(&encrypted)?;
+    staged.as_file_mut().sync_all()?;
+    staged
+        .persist_noclobber(&output)
+        .map_err(|error| error.error)?;
     Ok(output)
 }
 
@@ -361,6 +395,9 @@ pub(crate) fn copy_region<R: Read + Seek>(
     output: &Path,
     cancel: &AtomicBool,
 ) -> Result<()> {
+    if cancel.load(Ordering::Relaxed) {
+        bail!("operation cancelled");
+    }
     reader.seek(SeekFrom::Start(offset))?;
     let mut out = BufWriter::with_capacity(8 * 1024 * 1024, File::create(output)?);
     let mut remaining = size;
@@ -399,6 +436,22 @@ pub(crate) fn move_file(src: &Path, dst: &Path, cancel: &AtomicBool) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage114_compressed_title_table_expansion_is_bounded() -> Result<()> {
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&vec![0u8; 1024 * 1024])?;
+        let compressed = encoder.finish()?;
+        assert!(compressed.len() < NACP_TITLE_AREA_SIZE - 2);
+        let mut nacp = vec![0u8; 0x4000];
+        nacp[NACP_TITLES_DATA_FORMAT_OFFSET] = 1;
+        nacp[..2].copy_from_slice(&(compressed.len() as u16).to_le_bytes());
+        nacp[2..2 + compressed.len()].copy_from_slice(&compressed);
+        let original = nacp.clone();
+        assert!(patch_nacp_titles(&mut nacp, Some("Example"), None, None).is_err());
+        assert_eq!(nacp, original);
+        Ok(())
+    }
 
     #[test]
     fn patches_format1_titles_and_preserves_publisher_fallback() -> Result<()> {

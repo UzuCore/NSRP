@@ -15,15 +15,24 @@ pub(super) fn validate_container_filename(name: &str) -> Result<()> {
     {
         bail!("안전하지 않은 컨테이너 파일명: {name:?}");
     }
-    let first_part = name.split('.').next().unwrap_or_default();
+    let first_part = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
     let device = first_part.to_ascii_uppercase();
     if matches!(
         device.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-    ) || (device.len() == 4
-        && (device.starts_with("COM") || device.starts_with("LPT"))
-        && device.as_bytes()[3].is_ascii_digit()
-        && device.as_bytes()[3] != b'0')
+    ) || device
+        .strip_prefix("COM")
+        .or_else(|| device.strip_prefix("LPT"))
+        .is_some_and(|suffix| {
+            matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
     {
         bail!("Windows 예약 장치명은 컨테이너 파일명으로 사용할 수 없습니다: {name:?}");
     }
@@ -44,6 +53,9 @@ mod tests {
             "nul.txt",
             "LPT1",
             "com9.tmp",
+            "COM¹.dat",
+            "lpt².txt",
+            "NUL .txt",
             "a?b.nca",
             "a*b.nca",
             "a<b>.nca",

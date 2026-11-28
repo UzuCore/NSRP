@@ -1,6 +1,6 @@
 use crate::ops::title_support::*;
 use crate::{
-    formats::pfs0::{Pfs0Index, build_from_paths},
+    formats::pfs0::{Pfs0Index, Pfs0Source, build_from_sources},
     keys::KeySet,
     ops::{
         cnmt::{
@@ -266,30 +266,35 @@ pub fn patch_title(
     )?;
     progress(0.64);
 
-    let staging = temp.path().join("staging");
-    fs::create_dir_all(&staging)?;
-    let mut source = BufReader::with_capacity(8 * 1024 * 1024, File::open(&normalized)?);
-    let mut paths = Vec::<(String, PathBuf)>::new();
-    for (i, entry) in index.entries.iter().enumerate() {
+    // Keep the private normalized snapshot, but stream its unchanged
+    // entries straight into the new package instead of materializing a
+    // second complete tree of NCA files.
+    let mut paths = Vec::<(String, Pfs0Source)>::new();
+    for entry in &index.entries {
         if entry.name.eq_ignore_ascii_case(&base.cnmt_nca_name)
             || entry.name.eq_ignore_ascii_case(&control_name)
         {
             continue;
         }
-        let path = staging.join(format!("copy_{i}"));
-        copy_region(
-            &mut source,
-            index.data_start + entry.offset,
-            entry.size,
-            &path,
-            cancel,
-        )?;
-        paths.push((entry.name.clone(), path));
+        paths.push((
+            entry.name.clone(),
+            Pfs0Source::Region {
+                container: normalized.clone(),
+                offset: index
+                    .data_start
+                    .checked_add(entry.offset)
+                    .context("PFS0 offset overflow")?,
+                size: entry.size,
+            },
+        ));
     }
-    paths.push((format!("{}.nca", hex::encode(new_id)), new_control));
-    paths.push((base.cnmt_nca_name.clone(), new_meta));
+    paths.push((
+        format!("{}.nca", hex::encode(new_id)),
+        Pfs0Source::File(new_control),
+    ));
+    paths.push((base.cnmt_nca_name.clone(), Pfs0Source::File(new_meta)));
     let patched_nsp = temp.path().join("patched.nsp");
-    build_from_paths(&paths, &patched_nsp)?;
+    build_from_sources(&paths, &patched_nsp, cancel)?;
     progress(0.82);
 
     let original_stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("NSRP");
@@ -331,7 +336,9 @@ fn normalize_to_nsp(
         .to_ascii_lowercase();
     match ext.as_str() {
         "nsp" => {
-            fs::copy(input, output)?;
+            let mut source = BufReader::with_capacity(8 * 1024 * 1024, File::open(input)?);
+            let size = source.get_ref().metadata()?.len();
+            copy_region(&mut source, 0, size, output, cancel)?;
             progress(1.0);
         }
         "nsz" => decompress_nsz_repaired(input, output, hactool, prod_keys, cancel, progress, log)?,
@@ -401,7 +408,10 @@ fn finalize_same_format(
             Ok(out)
         }
         "xcz" => {
-            let temp_xci = output_dir.join(format!(".{base}.tmp.xci"));
+            let staging = tempfile::Builder::new()
+                .prefix("nsrp_title_xcz_")
+                .tempdir_in(output_dir)?;
+            let temp_xci = staging.path().join("intermediate.xci");
             build_xci_from_nsp(patched_nsp, &temp_xci, resource_dir, prod_keys, cancel, log)?;
             progress(0.90);
             let out = output_dir.join(format!("{base}.xcz"));
@@ -419,7 +429,6 @@ fn finalize_same_format(
                 &mut |p| progress(0.90 + p * 0.10),
                 log,
             );
-            let _ = fs::remove_file(&temp_xci);
             result?;
             Ok(out)
         }

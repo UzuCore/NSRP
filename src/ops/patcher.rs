@@ -1,7 +1,7 @@
 use crate::{
     formats::{
         nca::{NCA_XTS_HEADER_SIZE, decrypt_header, derive_section_key},
-        pfs0::build_from_paths,
+        pfs0::{Pfs0Source, build_from_sources},
     },
     keys::{KeySet, merge_ticket_keys_from_nsp_file, sanitize_title_keys_file},
     ops::{
@@ -390,8 +390,6 @@ pub fn patch_packages(
     }
     progress(0.78);
 
-    let staging = temp.path().join("staging");
-    fs::create_dir_all(&staging)?;
     let excluded_program = if update.is_some() {
         update_program.as_deref().unwrap()
     } else {
@@ -406,7 +404,7 @@ pub fn patch_packages(
             );
         }
     }
-    let mut paths = Vec::<(String, PathBuf)>::new();
+    let mut paths = Vec::<(String, Pfs0Source)>::new();
     for (name_key, (source_index, entry)) in selected {
         if name_key == excluded_program.to_ascii_lowercase() || patched_meta.contains_key(&name_key)
         {
@@ -421,11 +419,19 @@ pub fn patch_packages(
                 continue;
             }
         }
-        let out = staging.join(format!("orig_{}", paths.len()));
-        materialize_raw(&sources[source_index].normalized, &entry, &out, cancel)?;
-        paths.push((entry.name.clone(), out));
+        paths.push((
+            entry.name.clone(),
+            Pfs0Source::Region {
+                container: sources[source_index].normalized.clone(),
+                offset: entry.offset,
+                size: entry.size,
+            },
+        ));
     }
-    paths.push((format!("{}.nca", hex::encode(new_id)), new_program));
+    paths.push((
+        format!("{}.nca", hex::encode(new_id)),
+        Pfs0Source::File(new_program),
+    ));
     for (name, path) in patched_meta {
         let original_name = sources
             .iter()
@@ -433,11 +439,11 @@ pub fn patch_packages(
             .find(|e| e.name.eq_ignore_ascii_case(&name))
             .map(|e| e.name.clone())
             .unwrap_or(name);
-        paths.push((original_name, path));
+        paths.push((original_name, Pfs0Source::File(path)));
     }
     paths.sort_by(|a, b| a.0.cmp(&b.0));
     let built_nsp = temp.path().join("patched.nsp");
-    build_from_paths(&paths, &built_nsp)?;
+    build_from_sources(&paths, &built_nsp, cancel)?;
     repair_legacy_nsp_headers_for_launch(
         &built_nsp,
         hactool,
@@ -568,7 +574,9 @@ fn normalize_to_nsp(
         .to_ascii_lowercase();
     match ext.as_str() {
         "nsp" => {
-            fs::copy(input, output)?;
+            let mut reader = BufReader::with_capacity(8 * 1024 * 1024, File::open(input)?);
+            let size = reader.get_ref().metadata()?.len();
+            crate::ops::title_support::copy_region(&mut reader, 0, size, output, cancel)?;
             progress(1.0);
         }
         "nsz" => decompress_nsz(input, output, cancel, progress, log)?,
@@ -1817,10 +1825,7 @@ fn patch_one_cnmt(
     materialize_raw(&source.normalized, entry, &meta_path, cancel)?;
     let mut new_cnmt = meta.info.raw.clone();
     if let Some(version) = required_system_version {
-        if new_cnmt.len() < 0x30 {
-            bail!("CNMT가 RequiredSystemVersion 필드보다 짧습니다");
-        }
-        new_cnmt[0x28..0x30].copy_from_slice(&version.to_le_bytes());
+        write_required_system_version(&mut new_cnmt, version)?;
     }
     if let Some(program_name) = replace_program_name {
         let program_id = program_name.strip_suffix(".nca").unwrap_or(program_name);
@@ -1847,6 +1852,23 @@ fn patch_one_cnmt(
         &out_dir,
         cancel,
     )
+}
+
+/// Keep the existing version-edit feature within the actual 32-bit field.
+/// The next field is application-version or patch extended-data length.
+fn write_required_system_version(data: &mut [u8], version: u64) -> Result<()> {
+    ensure!(
+        data.len() >= 0x2c && matches!(data[0x0c], 0x80 | 0x81),
+        "CNMT has no supported RequiredSystemVersion field"
+    );
+    let ext = u16::from_le_bytes(data[0x0e..0x10].try_into()?);
+    ensure!(
+        ext >= 12 && 0x20 + usize::from(ext) <= data.len(),
+        "CNMT extended header is truncated"
+    );
+    let value = u32::try_from(version).context("RequiredSystemVersion exceeds its 32-bit field")?;
+    data[0x28..0x2c].copy_from_slice(&value.to_le_bytes());
+    Ok(())
 }
 
 fn find_program_row(data: &[u8]) -> Option<usize> {
@@ -1903,7 +1925,10 @@ fn finalize_same_format(
             Ok(out)
         }
         "xcz" => {
-            let xci = output_dir.join(format!(".{basename}.tmp.xci"));
+            let staging = tempfile::Builder::new()
+                .prefix("nsrp_patch_xcz_")
+                .tempdir_in(output_dir)?;
+            let xci = staging.path().join("intermediate.xci");
             build_xci_from_nsp(nsp, &xci, resource_dir, prod_keys, cancel, log)?;
             let out = output_dir.join(format!("{basename}.xcz"));
             let result = compress_xci(
@@ -1920,7 +1945,6 @@ fn finalize_same_format(
                 &mut |p| progress(0.94 + p * 0.06),
                 log,
             );
-            let _ = fs::remove_file(&xci);
             result?;
             Ok(out)
         }
@@ -1957,12 +1981,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stage99_metadata_edit_preserves_adjacent_fields() -> Result<()> {
+        for kind in [0x80, 0x81] {
+            let mut data = vec![0x5a; 0x60];
+            data[0x0c] = kind;
+            data[0x0e..0x10].copy_from_slice(&0x18u16.to_le_bytes());
+            let original = data.clone();
+            write_required_system_version(&mut data, 1234)?;
+            assert_eq!(&data[..0x28], &original[..0x28]);
+            assert_eq!(&data[0x2c..], &original[0x2c..]);
+            assert_eq!(&data[0x28..0x2c], &1234u32.to_le_bytes());
+            let before = data.clone();
+            assert!(write_required_system_version(&mut data, u64::MAX).is_err());
+            assert_eq!(data, before);
+            data[0x0c] = 0x82;
+            let before = data.clone();
+            assert!(write_required_system_version(&mut data, 1).is_err());
+            assert_eq!(data, before);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn stage82_native_program_exefs_without_external_tools() -> Result<()> {
         let root = tempfile::tempdir()?;
         let source = root.path().join("main.npdm");
         fs::write(&source, b"stage82 synthetic ExeFS")?;
         let pfs_path = root.path().join("partition.pfs0");
-        build_from_paths(&[("main.npdm".into(), source)], &pfs_path)?;
+        crate::formats::pfs0::build_from_paths(&[("main.npdm".into(), source)], &pfs_path)?;
         let pfs = fs::read(pfs_path)?;
         let mut keys = KeySet::default();
         keys.prod.insert("header_key".into(), (0..32u8).collect());

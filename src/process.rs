@@ -14,22 +14,29 @@ use std::{
 const MAX_TOOL_OUTPUT_BYTES: usize = 256 * 1024;
 
 fn read_tool_output_tail(mut stream: impl Read) -> Vec<u8> {
-    let mut output = Vec::new();
+    let mut output = Vec::with_capacity(MAX_TOOL_OUTPUT_BYTES);
+    let mut cursor = 0;
     let mut chunk = [0u8; 16 * 1024];
     loop {
         let count = match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
             Ok(count) => count,
         };
-        let overflow = output
-            .len()
-            .saturating_add(count)
-            .saturating_sub(MAX_TOOL_OUTPUT_BYTES);
-        if overflow > 0 {
-            output.drain(..overflow);
+        let fill = count.min(MAX_TOOL_OUTPUT_BYTES - output.len());
+        output.extend_from_slice(&chunk[..fill]);
+        if fill < count {
+            let rest = &chunk[fill..count];
+            let first = rest.len().min(MAX_TOOL_OUTPUT_BYTES - cursor);
+            output[cursor..cursor + first].copy_from_slice(&rest[..first]);
+            output[..rest.len() - first].copy_from_slice(&rest[first..]);
+            cursor = (cursor + rest.len()) % MAX_TOOL_OUTPUT_BYTES;
         }
-        output.extend_from_slice(&chunk[..count]);
     }
+    // Rotate once, rather than shifting the entire 256 KiB log on every
+    // 16 KiB read after the buffer fills.
+    output.rotate_left(cursor);
     output
 }
 
@@ -142,6 +149,22 @@ mod tests {
         let output = read_tool_output_tail(std::io::Cursor::new(bytes));
         assert_eq!(output.len(), MAX_TOOL_OUTPUT_BYTES);
         assert!(output.ends_with(b"FATAL: final error message\n"));
+    }
+
+    #[test]
+    fn stage109_tool_log_ring_preserves_exact_tail_across_wrap_boundaries() {
+        for len in [
+            0,
+            7,
+            MAX_TOOL_OUTPUT_BYTES - 1,
+            MAX_TOOL_OUTPUT_BYTES,
+            MAX_TOOL_OUTPUT_BYTES + 7,
+            3 * MAX_TOOL_OUTPUT_BYTES + 127,
+        ] {
+            let data: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let expected = &data[len.saturating_sub(MAX_TOOL_OUTPUT_BYTES)..];
+            assert_eq!(read_tool_output_tail(std::io::Cursor::new(&data)), expected);
+        }
     }
 
     #[test]

@@ -56,6 +56,20 @@ before allocating entry and string tables. Sparse QA files exercise 64-bit
 offsets without writing a full multi-GiB archive. These tests complement,
 rather than replace, actual package and emulator compatibility checks.
 
+Stage 96-120 hardening: PFS0 readers reject overlapping nonempty payloads;
+writers bound their name tables, honor early cancellation, and sync staged
+files before publication. Program and title patch assembly stream unchanged
+regions from private normalized snapshots instead of creating a second NCA
+tree. XCZ intermediates use unique task-owned directories. CNMT inspection
+reads the documented 32-bit system-version field only for application/patch
+metadata; the adjacent application-version or extended-data-length field
+must remain intact. Legacy metadata helpers now require a successful exit,
+bounded source-sized output, and an exact match to the selected payload.
+Complete native metadata reconstruction remains unverified and is not
+claimed by this change. Recovery logs and compressed NACP title tables
+have hard read/decompression bounds; an incomplete final recovery record
+is preserved for manual inspection rather than interpreted as completion.
+
 NSL maintains a separate vendored `nsrp-core`. Its integration API, patches
 and build requirements must be reviewed and tested before selectively porting
 new NSRP changes; replacing that fork wholesale is not a supported update.

@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufRead, BufReader, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -112,14 +112,30 @@ pub fn read_program_recovery_events(staging: &Path) -> Result<Vec<ProgramRecover
             path.display()
         );
     }
+    // Bound the actual read as well as the metadata snapshot. A file can
+    // grow between the size check and the read, especially on a share.
+    let mut contents = Vec::new();
+    File::open(&path)?
+        .take(MAX_EVENT_BYTES + 1)
+        .read_to_end(&mut contents)?;
+    ensure!(
+        contents.len() as u64 <= MAX_EVENT_BYTES,
+        "Recovery event log grew beyond its size limit: {}",
+        path.display()
+    );
+    ensure!(
+        contents.is_empty() || contents.last() == Some(&b'\n'),
+        "Incomplete Program recovery event record: {}",
+        path.display()
+    );
+    let text = std::str::from_utf8(&contents)?;
     let mut events = Vec::new();
-    for line in BufReader::new(File::open(&path)?).lines() {
+    for line in text.lines() {
         ensure!(
             events.len() < MAX_EVENT_COUNT,
             "Recovery event log is too long"
         );
-        let line = line?;
-        let event: ProgramRecoveryEvent = serde_json::from_str(&line).with_context(|| {
+        let event: ProgramRecoveryEvent = serde_json::from_str(line).with_context(|| {
             format!(
                 "Corrupted/incomplete Program recovery event: {}",
                 path.display()
@@ -170,8 +186,16 @@ pub fn record_program_recovery_phase(
                 path.display()
             )
         })?;
-    serde_json::to_writer(&mut file, &event)?;
-    file.write_all(b"\n")?;
+    let mut record = serde_json::to_vec(&event)?;
+    record.push(b'\n');
+    ensure!(
+        file.metadata()?
+            .len()
+            .checked_add(record.len() as u64)
+            .is_some_and(|len| len <= MAX_EVENT_BYTES),
+        "Program recovery event log would exceed its size limit"
+    );
+    file.write_all(&record)?;
     file.sync_all()?;
     Ok(())
 }
@@ -368,7 +392,16 @@ pub fn scan_program_recovery(parent: &Path) -> Result<Vec<PendingProgramPublicat
             "Program recovery journal is a symlink: {}",
             journal_path.display()
         );
-        let journal: ProgramPublicationIntent = serde_json::from_reader(File::open(&journal_path)?)
+        let mut journal_bytes = Vec::new();
+        File::open(&journal_path)?
+            .take(MAX_JOURNAL_BYTES + 1)
+            .read_to_end(&mut journal_bytes)?;
+        ensure!(
+            !journal_bytes.is_empty() && journal_bytes.len() as u64 <= MAX_JOURNAL_BYTES,
+            "Program recovery journal grew beyond its size limit: {}",
+            journal_path.display()
+        );
+        let journal: ProgramPublicationIntent = serde_json::from_slice(&journal_bytes)
             .with_context(|| format!("Invalid Program journal: {}", journal_path.display()))?;
         ensure!(
             journal.version == 1

@@ -142,6 +142,19 @@ impl Pfs0Index {
             }
             entries.push(Pfs0Entry { name, offset, size });
         }
+        // A malformed table can reference the same payload repeatedly.
+        // PFS0 entries describe disjoint file extents; zero-length entries
+        // can share a boundary but must not expand nonempty data aliases.
+        let mut extents: Vec<(u64, u64)> = entries
+            .iter()
+            .filter(|e| e.size != 0)
+            .map(|e| (e.offset, e.offset + e.size))
+            .collect();
+        extents.sort_unstable();
+        ensure!(
+            extents.windows(2).all(|w| w[0].1 <= w[1].0),
+            "Overlapping PFS0 payload entries"
+        );
         Ok(Self {
             data_start,
             entries,
@@ -212,6 +225,7 @@ pub fn build_from_streams<F>(
 where
     F: FnMut(usize, &mut BufWriter<File>) -> Result<()>,
 {
+    ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
     if names.is_empty() || names.len() > MAX_FILES as usize {
         bail!("PFS0 빌드 대상 파일 수가 유효하지 않습니다");
     }
@@ -219,10 +233,20 @@ where
     let mut string_offsets = Vec::with_capacity(names.len());
     let mut seen = HashSet::new();
     for name in names {
+        ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
         validate_name(name)?;
         if !seen.insert(name.to_lowercase()) {
             bail!("중복 PFS0 파일명: {name}");
         }
+        let next_size = strings
+            .len()
+            .checked_add(name.len())
+            .and_then(|len| len.checked_add(1))
+            .context("PFS0 string table overflow")?;
+        ensure!(
+            next_size <= MAX_STRING_TABLE as usize - 32,
+            "PFS0 string table exceeds its format limit"
+        );
         string_offsets.push(u32::try_from(strings.len()).context("PFS0 문자열 테이블 크기 초과")?);
         strings.extend_from_slice(name.as_bytes());
         strings.push(0);
@@ -291,6 +315,7 @@ where
         Ok(())
     })();
     result?;
+    staged.as_file().sync_all()?;
     ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
     // NamedTempFile::persist atomically replaces the destination on the
     // same volume. Failure drops the private temp but keeps the old file.
@@ -309,6 +334,7 @@ pub fn build_from_sources(
     out_path: &Path,
     cancel: &AtomicBool,
 ) -> Result<()> {
+    ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
     if entries.is_empty() {
         bail!("PFS0 빌드 대상이 비어 있습니다");
     }
@@ -320,11 +346,21 @@ pub fn build_from_sources(
     let mut sizes = Vec::with_capacity(entries.len());
     let mut seen = HashSet::new();
     for (name, source) in entries {
+        ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
         validate_name(name)?;
         if !seen.insert(name.to_lowercase()) {
             bail!("중복 PFS0 파일명: {name}");
         }
-        string_offsets.push(strings.len() as u32);
+        let next_size = strings
+            .len()
+            .checked_add(name.len())
+            .and_then(|len| len.checked_add(1))
+            .context("PFS0 string table overflow")?;
+        ensure!(
+            next_size <= MAX_STRING_TABLE as usize - 32,
+            "PFS0 string table exceeds its format limit"
+        );
+        string_offsets.push(u32::try_from(strings.len())?);
         strings.extend_from_slice(name.as_bytes());
         strings.push(0);
         sizes.push(source.size()?);
@@ -403,6 +439,7 @@ pub fn build_from_sources(
         Ok(())
     })();
     result?;
+    staged.as_file().sync_all()?;
     ensure!(!cancel.load(Ordering::Relaxed), "작업이 중단되었습니다");
     staged
         .persist(out_path)
@@ -617,6 +654,80 @@ mod tests {
             fs::read_dir(dir.path())?
                 .filter_map(Result::ok)
                 .all(|file| !file.file_name().to_string_lossy().ends_with(".partial"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stage114_overlapping_pfs0_extents_are_rejected() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let a = root.path().join("a.bin");
+        let b = root.path().join("b.bin");
+        fs::write(&a, [1u8; 32])?;
+        fs::write(&b, [2u8; 32])?;
+        let package = root.path().join("valid.nsp");
+        build_from_paths(&[("a.bin".into(), a), ("b.bin".into(), b)], &package)?;
+        let mut bytes = fs::read(&package)?;
+        bytes[40..48].copy_from_slice(&16u64.to_le_bytes());
+        let len = bytes.len() as u64;
+        let err = Pfs0Index::parse_reader(&mut std::io::Cursor::new(bytes), 0, len).unwrap_err();
+        assert!(err.to_string().contains("Overlapping PFS0"));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "synthetic 128 MiB disk I/O benchmark"]
+    fn stage110_direct_package_copy_avoids_full_intermediate_write() -> Result<()> {
+        use sha2::{Digest, Sha256};
+        use std::time::Instant;
+        let root = tempfile::tempdir()?;
+        let source = root.path().join("source.bin");
+        let mut file = File::create(&source)?;
+        let chunk = vec![0x5au8; 1024 * 1024];
+        for _ in 0..128 {
+            file.write_all(&chunk)?;
+        }
+        file.sync_all()?;
+        drop(file);
+        let size = fs::metadata(&source)?.len();
+        let cancel = AtomicBool::new(false);
+        let direct = root.path().join("direct.nsp");
+        let staged = root.path().join("staged.nsp");
+        let interim = root.path().join("interim.bin");
+        let t = Instant::now();
+        fs::copy(&source, &interim)?;
+        build_from_paths(&[("unchanged.nca".into(), interim)], &staged)?;
+        let staged_ms = t.elapsed().as_millis();
+        let t = Instant::now();
+        build_from_sources(
+            &[(
+                "unchanged.nca".into(),
+                Pfs0Source::Region {
+                    container: source,
+                    offset: 0,
+                    size,
+                },
+            )],
+            &direct,
+            &cancel,
+        )?;
+        let direct_ms = t.elapsed().as_millis();
+        let digest = |path: &Path| -> Result<[u8; 32]> {
+            let mut reader = File::open(path)?;
+            let mut hash = Sha256::new();
+            let mut buf = vec![0; 1024 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                hash.update(&buf[..n]);
+            }
+            Ok(hash.finalize().into())
+        };
+        assert_eq!(digest(&direct)?, digest(&staged)?);
+        println!(
+            "STAGE110_PFS0_COPY_COMPARE payload_bytes={size} staged_ms={staged_ms} direct_ms={direct_ms} avoided_temp_bytes={size}"
         );
         Ok(())
     }

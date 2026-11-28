@@ -75,6 +75,7 @@ pub fn compress_nsp(
 
     // Plan the output table first. NCZ sizes are only known after encoding, so
     // the PFS0 writer backfills lengths while all payloads stream in place.
+    let mut head = vec![0u8; NCA_NCZ_HEADER_SIZE];
     for entry in &index.entries {
         if cancel.load(Ordering::Relaxed) {
             bail!("작업이 중단되었습니다");
@@ -88,12 +89,13 @@ pub fn compress_nsp(
             if entry.size < NCA_XTS_HEADER_SIZE as u64 {
                 bail!("NCA 엔트리가 너무 짧습니다: {}", entry.name);
             }
-            let mut head = vec![0u8; entry.size.min(NCA_NCZ_HEADER_SIZE as u64) as usize];
+            let head_len = entry.size.min(NCA_NCZ_HEADER_SIZE as u64) as usize;
+            let head = &mut head[..head_len];
             source.seek(SeekFrom::Start(abs))?;
-            source.read_exact(&mut head)?;
+            source.read_exact(head)?;
 
             if head.len() >= NCA_NCZ_HEADER_SIZE {
-                match make_ncz_plan_from_reader(&mut source, abs, entry.size, &head, keys) {
+                match make_ncz_plan_from_reader(&mut source, abs, entry.size, head, keys) {
                     Ok(ncz_plan) => {
                         name = replace_last_extension(&entry.name, "ncz");
                         plan = Some(ncz_plan);
